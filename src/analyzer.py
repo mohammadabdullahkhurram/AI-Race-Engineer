@@ -12,28 +12,92 @@ from typing import Optional
 import numpy as np
 
 
-# Yas Marina approximate sector boundaries (metres from start/finish)
-# Sector 1: 0–1760m (turns 1–7, technical section)
-# Sector 2: 1760–3520m (turns 8–14, marina section)
-# Sector 3: 3520–5281m (turns 15–21, back straight + final chicane)
-YAS_MARINA_SECTORS = [
-    {"id": 1, "name": "Sector 1", "start_m": 0,    "end_m": 1760},
-    {"id": 2, "name": "Sector 2", "start_m": 1760,  "end_m": 3520},
-    {"id": 3, "name": "Sector 3", "start_m": 3520,  "end_m": 5281},
-]
+def auto_detect_sectors(lap: dict, n_sectors: int = 3) -> list:
+    """
+    Auto-detect sector boundaries by splitting the lap into equal distance thirds.
+    Works on any track — no hardcoded distances needed.
+    """
+    dist = lap["channels"]["dist_m"]
+    total = dist[-1]
+    sector_len = total / n_sectors
+    sectors = []
+    for i in range(n_sectors):
+        start = i * sector_len
+        end   = (i + 1) * sector_len
+        sectors.append({
+            "id":       i + 1,
+            "name":     f"Sector {i + 1}",
+            "start_m":  round(start, 1),
+            "end_m":    round(end, 1),
+        })
+    return sectors
 
-# Key corners at Yas Marina (approximate distances from S/F)
-YAS_MARINA_CORNERS = [
-    {"id": "T1",  "name": "Turn 1",  "dist_m": 200,  "type": "heavy_brake"},
-    {"id": "T5",  "name": "Turn 5",  "dist_m": 800,  "type": "medium_corner"},
-    {"id": "T8",  "name": "Turn 8",  "dist_m": 1800, "type": "heavy_brake"},
-    {"id": "T9",  "name": "Turn 9",  "dist_m": 2100, "type": "chicane"},
-    {"id": "T11", "name": "Turn 11", "dist_m": 2600, "type": "medium_corner"},
-    {"id": "T14", "name": "Turn 14", "dist_m": 3100, "type": "heavy_brake"},
-    {"id": "T17", "name": "Turn 17", "dist_m": 3900, "type": "medium_corner"},
-    {"id": "T19", "name": "Turn 19", "dist_m": 4500, "type": "heavy_brake"},
-    {"id": "T21", "name": "Turn 21", "dist_m": 5100, "type": "final_corner"},
-]
+
+def auto_detect_corners(lap: dict, min_gap_m: float = 150.0) -> list:
+    """
+    Auto-detect corners from any lap by finding local speed minima.
+    No hardcoded corner positions — works on any circuit.
+
+    Algorithm:
+      1. Smooth the speed trace
+      2. Find all local minima below the median speed
+      3. Classify each by how slow it is relative to surroundings
+      4. Enforce minimum spacing between corners
+    """
+    import numpy as np
+    from scipy.ndimage import uniform_filter1d
+
+    dist  = np.array(lap["channels"]["dist_m"])
+    speed = np.array(lap["channels"]["speed_kmh"])
+
+    # Smooth over ~50m window
+    pts_per_50m = max(1, int(50 / ((dist[-1] - dist[0]) / len(dist))))
+    smoothed = uniform_filter1d(speed, size=pts_per_50m)
+
+    median_speed = float(np.median(smoothed))
+    threshold    = median_speed * 0.92  # corners are below 92% of median speed
+
+    # Find local minima
+    minima = []
+    window = pts_per_50m * 2
+    for i in range(window, len(smoothed) - window):
+        local_min = np.min(smoothed[i - window:i + window])
+        if smoothed[i] == local_min and smoothed[i] < threshold:
+            minima.append(i)
+
+    # Enforce minimum gap between corners
+    corners = []
+    last_dist = -min_gap_m * 2
+    corner_num = 1
+
+    for idx in minima:
+        d = float(dist[idx])
+        if d - last_dist < min_gap_m:
+            continue
+
+        apex_speed = float(smoothed[idx])
+        # Classify corner type by how slow it is
+        pct = apex_speed / median_speed
+        if pct < 0.55:
+            corner_type = "heavy_brake"
+        elif pct < 0.70:
+            corner_type = "medium_corner"
+        elif pct < 0.82:
+            corner_type = "light_corner"
+        else:
+            corner_type = "fast_corner"
+
+        corners.append({
+            "id":       f"T{corner_num}",
+            "name":     f"Turn {corner_num}",
+            "dist_m":   round(d, 1),
+            "type":     corner_type,
+        })
+        last_dist = d
+        corner_num += 1
+
+    print(f"  Auto-detected {len(corners)} corners, {len(set(c['type'] for c in corners))} types")
+    return corners
 
 
 def load_lap(json_path: str, lap_index: int = 0) -> dict:
@@ -120,15 +184,17 @@ def align_laps(ref_lap: dict, comp_lap: dict, resolution_m: float = 5.0) -> dict
     }
 
 
-def compute_sector_analysis(aligned: dict) -> list:
+def compute_sector_analysis(aligned: dict, sectors_def: list = None) -> list:
     """
     Compute per-sector statistics from aligned lap data.
-    Returns a list of sector dicts with key metrics and time deltas.
+    Works on any track — sectors_def is auto-detected, not hardcoded.
     """
     grid = aligned["grid_m"]
     sectors = []
+    if sectors_def is None:
+        sectors_def = []
 
-    for sec in YAS_MARINA_SECTORS:
+    for sec in sectors_def:
         # Find indices within this sector
         indices = [i for i, d in enumerate(grid) if sec["start_m"] <= d < sec["end_m"]]
         if not indices:
@@ -184,15 +250,18 @@ def compute_sector_analysis(aligned: dict) -> list:
     return sectors
 
 
-def compute_corner_analysis(aligned: dict) -> list:
+def compute_corner_analysis(aligned: dict, corners_def: list = None) -> list:
     """
-    Analyse each key Yas Marina corner for braking point, entry speed,
+    Analyse each detected corner for braking point, entry speed,
     apex speed, throttle pick-up, and time delta at that corner.
+    Works on any track — corners_def is auto-detected, not hardcoded.
     """
     grid = aligned["grid_m"]
     corners = []
+    if corners_def is None:
+        corners_def = []
 
-    for corner in YAS_MARINA_CORNERS:
+    for corner in corners_def:
         apex_dist = corner["dist_m"]
         # Window: 200m before to 300m after apex
         window_start = max(0, apex_dist - 200)
@@ -302,8 +371,8 @@ def find_worst_sections(aligned: dict, n: int = 5) -> list:
 def run_analysis(ref_json: str, comp_json: str,
                  ref_lap_idx: int = 0, comp_lap_idx: int = 0) -> dict:
     """
-    Full analysis pipeline: load → align → sector analysis → corner analysis.
-    Returns a structured dict ready for the coaching engine.
+    Full analysis pipeline: load → align → auto-detect corners/sectors → analyze.
+    Fully track-agnostic — works on any circuit without hardcoded values.
     """
     ref_lap = load_lap(ref_json, ref_lap_idx)
     comp_lap = load_lap(comp_json, comp_lap_idx)
@@ -311,9 +380,13 @@ def run_analysis(ref_json: str, comp_json: str,
     print(f"Reference: {ref_lap['label']} - Lap {ref_lap['lap_number']} ({ref_lap['lap_time_s']:.1f}s)")
     print(f"Compared:  {comp_lap['label']} - Lap {comp_lap['lap_number']} ({comp_lap['lap_time_s']:.1f}s)")
 
+    # Auto-detect track structure from reference lap GPS/speed data
+    sectors_def = auto_detect_sectors(ref_lap, n_sectors=3)
+    corners_def = auto_detect_corners(ref_lap)
+
     aligned = align_laps(ref_lap, comp_lap)
-    sectors = compute_sector_analysis(aligned)
-    corners = compute_corner_analysis(aligned)
+    sectors = compute_sector_analysis(aligned, sectors_def)
+    corners = compute_corner_analysis(aligned, corners_def)
     worst = find_worst_sections(aligned)
 
     total_time_delta = comp_lap["lap_time_s"] - ref_lap["lap_time_s"]

@@ -32,20 +32,27 @@ def banner(text):
     print("=" * 60)
 
 
-def run_pipeline():
+def run_pipeline(comp_json_override=None):
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
 
-    # ── STEP 1: Extract ───────────────────────────────────────────────────────
-    banner("STEP 1 / 3  —  Extracting telemetry")
-
     ref_json  = f"{OUTPUT_DIR}/fast_laps.json"
-    comp_json = f"{OUTPUT_DIR}/good_lap.json"
 
-    ref_data = extract_lap(REF_MCAP, lap_label="fast_laps")
-    save_lap_json(ref_data, ref_json)
-
-    comp_data = extract_lap(COMP_MCAP, lap_label="good_lap")
-    save_lap_json(comp_data, comp_json)
+    # ── STEP 1: Extract ───────────────────────────────────────────────────────
+    if comp_json_override:
+        # Sim lap mode — only extract reference, use provided sim lap
+        banner("STEP 1 / 3  —  Extracting reference lap")
+        ref_data = extract_lap(REF_MCAP, lap_label="fast_laps")
+        save_lap_json(ref_data, ref_json)
+        comp_json = comp_json_override
+        print(f"  Using sim lap: {comp_json}")
+    else:
+        # Normal mode — extract both MCAP files
+        banner("STEP 1 / 3  —  Extracting telemetry")
+        comp_json = f"{OUTPUT_DIR}/good_lap.json"
+        ref_data = extract_lap(REF_MCAP, lap_label="fast_laps")
+        save_lap_json(ref_data, ref_json)
+        comp_data = extract_lap(COMP_MCAP, lap_label="good_lap")
+        save_lap_json(comp_data, comp_json)
 
     # ── STEP 2: Analyze ───────────────────────────────────────────────────────
     banner("STEP 2 / 3  —  Comparing laps")
@@ -788,4 +795,11 @@ window.addEventListener('resize', drawTrackMap);
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    import argparse
+    parser = argparse.ArgumentParser(description="AI Race Engineer Pipeline")
+    parser.add_argument(
+        "--comp-json", default=None,
+        help="Path to normalized sim lap JSON (skips MCAP extraction for comp lap)"
+    )
+    args = parser.parse_args()
+    run_pipeline(comp_json_override=args.comp_json)
