@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "total_laps": 1,
+    "total_time_s": 225.989,
+    "best_lap_number": 1,
+    "best_lap_time_s": 225.989,
+    "worst_lap_time_s": 225.989,
+    "lap_time_range_s": 0.0,
+    "total_events": 0,
+    "defensive_brakes": 0,
+    "lift_offs": 0,
+    "pace_vs_ref_s": 151.73
+  },
+  "laps": [
+    {
+      "lap_number": 1,
+      "lap_time_s": 225.989,
+      "ref_time_s": 74.259,
+      "time_delta_s": 151.73,
+      "avg_speed_delta": -67.55,
+      "min_speed_delta": -137.74,
+      "avg_throttle": 0.377,
+      "avg_brake": 217795.133
+    }
+  ],
+  "lap_events": [
+    []
+  ],
+  "all_events": []
+}

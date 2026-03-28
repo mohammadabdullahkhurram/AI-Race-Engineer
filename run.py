@@ -12,14 +12,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from extractor import extract_lap, save_lap_json
-from analyzer  import run_analysis
-from coach     import generate_coaching_report, print_coaching_report
+from extractor     import extract_lap, save_lap_json
+from analyzer      import run_analysis
+from coach         import generate_coaching_report, print_coaching_report
+from race_analyzer import run_race_analysis
 
 # ── CONFIG — change these if your filenames differ ───────────────────────────
-REF_MCAP   = "data/hackathon_fast_laps.mcap"
-COMP_MCAP  = "data/hackathon_good_lap.mcap"
-OUTPUT_DIR = "output"
+BASE_DIR   = Path(__file__).parent
+REF_MCAP   = str(BASE_DIR.parent / "data/hackathon_fast_laps.mcap")
+COMP_MCAP  = str(BASE_DIR.parent / "data/hackathon_good_lap.mcap")
+OUTPUT_DIR = str(BASE_DIR / "output")
+RACE_MCAP  = str(BASE_DIR.parent / "data/hackathon_wheel_to_wheel.mcap")
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -67,10 +70,20 @@ def run_pipeline():
 
     print_coaching_report(coaching)
 
-    # ── STEP 4: Dashboard ─────────────────────────────────────────────────────
+    # ── STEP 4: Race Analysis ────────────────────────────────────────────────────
+    banner("STEP 4 / 4  —  Wheel-to-wheel race analysis")
+    race_result = None
+    try:
+        race_result = run_race_analysis(RACE_MCAP, ref_json, OUTPUT_DIR)
+        s = race_result["summary"]
+        print(f"  Laps: {s['total_laps']}  |  Best: {s['best_lap_time_s']:.1f}s  |  Events: {s['total_events']}")
+    except Exception as e:
+        print(f"  Race analysis skipped: {e}")
+
+    # ── STEP 5: Dashboard ─────────────────────────────────────────────────────
     banner("Building dashboard")
 
-    html = build_dashboard(analysis, coaching, ref_json, comp_json)
+    html = build_dashboard(analysis, coaching, ref_json, comp_json, race_result)
     dashboard_path = f"{OUTPUT_DIR}/dashboard.html"
     with open(dashboard_path, "w") as f:
         f.write(html)
@@ -124,7 +137,7 @@ def fmt_time(s):
     return f"{mins}:{secs:06.3f}" if mins > 0 else f"{secs:.3f}s"
 
 
-def build_dashboard(analysis, coaching, ref_json, comp_json):
+def build_dashboard(analysis, coaching, ref_json, comp_json, race_result=None):
     ref_time  = analysis["ref_lap_time_s"]
     comp_time = analysis["comp_lap_time_s"]
     delta     = analysis["total_time_delta_s"]
@@ -234,6 +247,86 @@ def build_dashboard(analysis, coaching, ref_json, comp_json):
 
     def positive_items():
         return "".join(f'<div class="positive-item">✓ {p}</div>' for p in positives)
+
+    def race_section():
+        if not race_result:
+            return ""
+        s   = race_result["summary"]
+        laps = race_result["laps"]
+        events = race_result["all_events"]
+
+        stat_html = f"""
+        <div class="race-grid">
+          <div class="race-stat">
+            <div class="race-stat-label">Total Laps</div>
+            <div class="race-stat-val">{s['total_laps']}</div>
+          </div>
+          <div class="race-stat">
+            <div class="race-stat-label">Best Lap</div>
+            <div class="race-stat-val" style="color:var(--teal)">{fmt_time(s['best_lap_time_s'])}</div>
+            <div class="race-stat-sub">Lap {s['best_lap_number']}</div>
+          </div>
+          <div class="race-stat">
+            <div class="race-stat-label">Pace vs Reference</div>
+            <div class="race-stat-val" style="color:var(--red)">+{s['pace_vs_ref_s']:.3f}s</div>
+            <div class="race-stat-sub">Best race lap</div>
+          </div>
+          <div class="race-stat">
+            <div class="race-stat-label">Lap Variation</div>
+            <div class="race-stat-val">{s['lap_time_range_s']:.3f}s</div>
+            <div class="race-stat-sub">Best to worst</div>
+          </div>
+          <div class="race-stat">
+            <div class="race-stat-label">Race Events</div>
+            <div class="race-stat-val" style="color:var(--yellow)">{s['total_events']}</div>
+            <div class="race-stat-sub">{s['defensive_brakes']} brake · {s['lift_offs']} lift</div>
+          </div>
+        </div>"""
+
+        # Lap table
+        rows = ""
+        for l in laps:
+            best_cls = " class=\"lap-best\"" if l['lap_number'] == s['best_lap_number'] else ""
+            sign = "+" if l['time_delta_s'] > 0 else ""
+            delta_col = "var(--red)" if l['time_delta_s'] > 0 else "var(--teal)"
+            rows += f"""<tr{best_cls}>
+              <td>LAP {l['lap_number']}{'  ★' if l['lap_number'] == s['best_lap_number'] else ''}</td>
+              <td>{fmt_time(l['lap_time_s'])}</td>
+              <td style="color:{delta_col}">{sign}{l['time_delta_s']:.3f}s</td>
+              <td>{l['avg_speed_delta']:+.1f} km/h</td>
+              <td>{l['avg_throttle']*100:.0f}%</td>
+            </tr>"""
+
+        table_html = f"""
+        <table class="lap-table">
+          <thead><tr>
+            <th>Lap</th><th>Time</th><th>vs Reference</th><th>Avg Speed Delta</th><th>Avg Throttle</th>
+          </tr></thead>
+          <tbody>{rows}</tbody>
+        </table>"""
+
+        # Events
+        event_html = ""
+        for e in events[:8]:
+            event_html += f"""
+        <div class="event-card">
+          <div class="event-header">
+            <span class="event-type">{e['label'].upper()}</span>
+            <span class="event-dist">@ {e['dist_m']:.0f}m</span>
+            <span class="event-speed">−{e['speed_drop_kmh']:.0f} km/h</span>
+          </div>
+          <div class="event-desc">{e['description']}</div>
+        </div>"""
+
+        if not event_html:
+            event_html = '<div style="font-size:12px;color:var(--muted);padding:12px 0">No anomalous events detected — clean race pace throughout.</div>'
+
+        return f"""
+        <div class="sec">Race Analysis — Wheel to Wheel</div>
+        {stat_html}
+        {table_html}
+        <div class="sec">Race Events</div>
+        {event_html}"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -351,6 +444,24 @@ body::before{{content:'';position:fixed;inset:0;background-image:repeating-linea
 .positives{{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--teal);padding:16px 20px;margin-bottom:28px}}
 .positive-item{{font-size:12px;color:var(--teal);line-height:1.9}}
 
+/* race section */
+.race-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:20px}}
+.race-stat{{background:var(--bg2);border:1px solid var(--border);padding:14px 16px}}
+.race-stat-label{{font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}}
+.race-stat-val{{font-family:var(--fd);font-size:28px;font-weight:700;line-height:1}}
+.race-stat-sub{{font-size:10px;color:var(--muted);margin-top:4px}}
+.lap-table{{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:12px}}
+.lap-table th{{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}}
+.lap-table td{{padding:10px 12px;border-bottom:1px solid var(--dim)}}
+.lap-table tr:hover td{{background:var(--bg3)}}
+.lap-best td{{color:var(--teal)!important}}
+.event-card{{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--yellow);padding:14px;margin-bottom:8px}}
+.event-header{{display:flex;align-items:center;gap:10px;margin-bottom:6px}}
+.event-type{{font-family:var(--fd);font-size:14px;font-weight:700;letter-spacing:1px;color:var(--yellow)}}
+.event-dist{{font-size:11px;color:var(--muted)}}
+.event-speed{{font-size:12px;font-weight:700;color:var(--red)}}
+.event-desc{{font-size:12px;color:#aaa;line-height:1.5}}
+
 /* animations */
 @keyframes fadeUp{{from{{opacity:0;transform:translateY(16px)}}to{{opacity:1;transform:translateY(0)}}}}
 @keyframes slideIn{{from{{opacity:0;transform:translateX(-12px)}}to{{opacity:1;transform:translateX(0)}}}}
@@ -446,6 +557,8 @@ body::before{{content:'';position:fixed;inset:0;background-image:repeating-linea
 <div class="corners-grid">{corner_cards()}</div>
 
 {'<div class="sec">What\'s Working</div><div class="positives">' + positive_items() + '</div>' if positives else ''}
+
+{race_section()}
 
 </div>
 <script>
