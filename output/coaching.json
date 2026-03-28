@@ -1,0 +1,371 @@
+{
+  "overall_summary": "Driver is 7.000s slower than reference. Biggest loss is in Sector 1 (+5.403s), driven by 9.5 km/h corner speed deficit. Correcting identified issues could recover approximately 3.06s.",
+  "priority_actions": [
+    {
+      "location": "Turn 8",
+      "issue": "Apex speed 35.6 km/h below reference (93.2 vs 128.9 km/h).",
+      "instruction": "Carry more speed through apex \u2014 target 129 km/h. Widen entry for a later apex and maximise exit speed.",
+      "time_gain_s": 1.068,
+      "evidence": "Apex: 93.2 km/h vs 128.9 km/h (-35.6 km/h).",
+      "priority": 1,
+      "confidence": "high"
+    },
+    {
+      "location": "Turn 5",
+      "issue": "Apex speed 23.2 km/h below reference (126.3 vs 149.5 km/h).",
+      "instruction": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 150 km/h here.",
+      "time_gain_s": 0.696,
+      "evidence": "Apex: 126.3 km/h vs 149.5 km/h (-23.2 km/h).",
+      "priority": 2,
+      "confidence": "high"
+    },
+    {
+      "location": "Turn 14",
+      "issue": "Apex speed 18.3 km/h below reference (104.6 vs 123.0 km/h).",
+      "instruction": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 123 km/h here.",
+      "time_gain_s": 0.549,
+      "evidence": "Apex: 104.6 km/h vs 123.0 km/h (-18.3 km/h).",
+      "priority": 3,
+      "confidence": "high"
+    },
+    {
+      "location": "Turn 5",
+      "issue": "Braking 90m too early.",
+      "instruction": "Move brake point 90m later. Reference at 720m, driver at 630m.",
+      "time_gain_s": 0.45,
+      "evidence": "Brake point: 630m vs 720m (-90m delta).",
+      "priority": 4,
+      "confidence": "high"
+    },
+    {
+      "location": "Turn 1",
+      "issue": "Apex speed 10.4 km/h below reference (84.7 vs 95.1 km/h).",
+      "instruction": "Carry more speed through apex \u2014 target 95 km/h. Widen entry for a later apex and maximise exit speed.",
+      "time_gain_s": 0.312,
+      "evidence": "Apex: 84.7 km/h vs 95.1 km/h (-10.4 km/h).",
+      "priority": 5,
+      "confidence": "high"
+    },
+    {
+      "location": "Turn 11",
+      "issue": "Apex speed 7.4 km/h below reference (47.0 vs 54.4 km/h).",
+      "instruction": "Despite late braking, apex speed is low \u2014 car not rotating. Use higher initial brake pressure to pitch the car in, trail off through apex to hit 54 km/h.",
+      "time_gain_s": 0.222,
+      "evidence": "Apex: 47.0 km/h vs 54.4 km/h (-7.4 km/h).",
+      "priority": 6,
+      "confidence": "high"
+    }
+  ],
+  "sector_feedback": [
+    {
+      "sector": "Sector 1",
+      "time_delta_s": 5.403,
+      "headline": "Minimum corner speed is 9.5 km/h below reference \u2014 driver is over-slowing significantly.",
+      "details": "Average throttle is 9% lower than reference \u2014 hesitant on power. Over-braking vs reference \u2014 brake trace is heavier than reference. Driver may be leaving brakes on too long into corners.",
+      "has_issues": true
+    },
+    {
+      "sector": "Sector 2",
+      "time_delta_s": 2.342,
+      "headline": "Minimum corner speed is 7.4 km/h below reference \u2014 driver is over-slowing significantly.",
+      "details": "Over-braking vs reference \u2014 brake trace is heavier than reference. Driver may be leaving brakes on too long into corners.",
+      "has_issues": true
+    }
+  ],
+  "corner_coaching": [
+    {
+      "corner": "Turn 8",
+      "corner_type": "heavy_brake",
+      "dist_m": 1800,
+      "time_delta_s": 5.458,
+      "technique_issue": "Apex speed 35.6 km/h below reference (93.2 vs 128.9 km/h).",
+      "fix": "Carry more speed through apex \u2014 target 129 km/h. Widen entry for a later apex and maximise exit speed.",
+      "data_evidence": "Apex: 93.2 km/h vs 128.9 km/h (-35.6 km/h).",
+      "time_gain_s": 1.068,
+      "all_issues": [
+        {
+          "issue": "Apex speed 35.6 km/h below reference (93.2 vs 128.9 km/h).",
+          "fix": "Carry more speed through apex \u2014 target 129 km/h. Widen entry for a later apex and maximise exit speed.",
+          "gain": 1.068,
+          "evidence": "Apex: 93.2 km/h vs 128.9 km/h (-35.6 km/h)."
+        }
+      ]
+    },
+    {
+      "corner": "Turn 5",
+      "corner_type": "medium_corner",
+      "dist_m": 800,
+      "time_delta_s": 2.396,
+      "technique_issue": "Apex speed 23.2 km/h below reference (126.3 vs 149.5 km/h).",
+      "fix": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 150 km/h here.",
+      "data_evidence": "Apex: 126.3 km/h vs 149.5 km/h (-23.2 km/h).",
+      "time_gain_s": 0.696,
+      "all_issues": [
+        {
+          "issue": "Braking 90m too early.",
+          "fix": "Move brake point 90m later. Reference at 720m, driver at 630m.",
+          "gain": 0.45,
+          "evidence": "Brake point: 630m vs 720m (-90m delta)."
+        },
+        {
+          "issue": "Apex speed 23.2 km/h below reference (126.3 vs 149.5 km/h).",
+          "fix": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 150 km/h here.",
+          "gain": 0.696,
+          "evidence": "Apex: 126.3 km/h vs 149.5 km/h (-23.2 km/h)."
+        }
+      ]
+    },
+    {
+      "corner": "Turn 14",
+      "corner_type": "heavy_brake",
+      "dist_m": 3100,
+      "time_delta_s": 7.762,
+      "technique_issue": "Apex speed 18.3 km/h below reference (104.6 vs 123.0 km/h).",
+      "fix": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 123 km/h here.",
+      "data_evidence": "Apex: 104.6 km/h vs 123.0 km/h (-18.3 km/h).",
+      "time_gain_s": 0.549,
+      "all_issues": [
+        {
+          "issue": "Braking 40m too early.",
+          "fix": "Move brake point 40m later. Reference at 2940m, driver at 2900m.",
+          "gain": 0.2,
+          "evidence": "Brake point: 2900m vs 2940m (-40m delta)."
+        },
+        {
+          "issue": "Apex speed 18.3 km/h below reference (104.6 vs 123.0 km/h).",
+          "fix": "Braking too early and shedding too much speed. Delay brake point and commit to a later apex. Reference carries 123 km/h here.",
+          "gain": 0.549,
+          "evidence": "Apex: 104.6 km/h vs 123.0 km/h (-18.3 km/h)."
+        }
+      ]
+    },
+    {
+      "corner": "Turn 1",
+      "corner_type": "heavy_brake",
+      "dist_m": 200,
+      "time_delta_s": 0.849,
+      "technique_issue": "Apex speed 10.4 km/h below reference (84.7 vs 95.1 km/h).",
+      "fix": "Carry more speed through apex \u2014 target 95 km/h. Widen entry for a later apex and maximise exit speed.",
+      "data_evidence": "Apex: 84.7 km/h vs 95.1 km/h (-10.4 km/h).",
+      "time_gain_s": 0.312,
+      "all_issues": [
+        {
+          "issue": "Apex speed 10.4 km/h below reference (84.7 vs 95.1 km/h).",
+          "fix": "Carry more speed through apex \u2014 target 95 km/h. Widen entry for a later apex and maximise exit speed.",
+          "gain": 0.312,
+          "evidence": "Apex: 84.7 km/h vs 95.1 km/h (-10.4 km/h)."
+        }
+      ]
+    },
+    {
+      "corner": "Turn 11",
+      "corner_type": "medium_corner",
+      "dist_m": 2600,
+      "time_delta_s": 5.585,
+      "technique_issue": "Apex speed 7.4 km/h below reference (47.0 vs 54.4 km/h).",
+      "fix": "Despite late braking, apex speed is low \u2014 car not rotating. Use higher initial brake pressure to pitch the car in, trail off through apex to hit 54 km/h.",
+      "data_evidence": "Apex: 47.0 km/h vs 54.4 km/h (-7.4 km/h).",
+      "time_gain_s": 0.222,
+      "all_issues": [
+        {
+          "issue": "Braking 65m later than reference \u2014 risk of running wide.",
+          "fix": "Move brake point back 65m. Reference uses 2410m.",
+          "gain": 0.0,
+          "evidence": "Brake point: 2475m vs 2410m."
+        },
+        {
+          "issue": "Apex speed 7.4 km/h below reference (47.0 vs 54.4 km/h).",
+          "fix": "Despite late braking, apex speed is low \u2014 car not rotating. Use higher initial brake pressure to pitch the car in, trail off through apex to hit 54 km/h.",
+          "gain": 0.222,
+          "evidence": "Apex: 47.0 km/h vs 54.4 km/h (-7.4 km/h)."
+        },
+        {
+          "issue": "Throttle pick-up 20m later than reference.",
+          "fix": "Apply throttle 20m earlier. Reference at 2640m, driver at 2660m. Late throttle bleeds straight-line speed.",
+          "gain": 0.08,
+          "evidence": "Throttle pickup: 2660m vs 2640m."
+        }
+      ]
+    },
+    {
+      "corner": "Turn 9",
+      "corner_type": "chicane",
+      "dist_m": 2100,
+      "time_delta_s": 5.603,
+      "technique_issue": "Apex speed 7.1 km/h below reference (206.3 vs 213.4 km/h).",
+      "fix": "Despite late braking, apex speed is low \u2014 car not rotating. Use higher initial brake pressure to pitch the car in, trail off through apex to hit 213 km/h.",
+      "data_evidence": "Apex: 206.3 km/h vs 213.4 km/h (-7.1 km/h).",
+      "time_gain_s": 0.213,
+      "all_issues": [
+        {
+          "issue": "Braking 15m later than reference \u2014 risk of running wide.",
+          "fix": "Move brake point back 15m. Reference uses 1935m.",
+          "gain": 0.0,
+          "evidence": "Brake point: 1950m vs 1935m."
+        },
+        {
+          "issue": "Apex speed 7.1 km/h below reference (206.3 vs 213.4 km/h).",
+          "fix": "Despite late braking, apex speed is low \u2014 car not rotating. Use higher initial brake pressure to pitch the car in, trail off through apex to hit 213 km/h.",
+          "gain": 0.213,
+          "evidence": "Apex: 206.3 km/h vs 213.4 km/h (-7.1 km/h)."
+        }
+      ]
+    }
+  ],
+  "positive_observations": [],
+  "telemetry_summary": {
+    "ref_lap_time_s": 74.259,
+    "comp_lap_time_s": 81.259,
+    "total_delta_s": 7.0,
+    "sectors": [
+      {
+        "sector_id": 1,
+        "sector_name": "Sector 1",
+        "start_m": 0,
+        "end_m": 1760,
+        "time_delta_s": 5.403,
+        "ref_min_speed_kmh": 65.5,
+        "comp_min_speed_kmh": 56.0,
+        "speed_delta_at_min_kmh": -9.5,
+        "ref_max_speed_kmh": 225.8,
+        "comp_max_speed_kmh": 217.4,
+        "ref_avg_brake": 330955.053,
+        "comp_avg_brake": 340667.302,
+        "ref_avg_throttle": 0.736,
+        "comp_avg_throttle": 0.649
+      },
+      {
+        "sector_id": 2,
+        "sector_name": "Sector 2",
+        "start_m": 1760,
+        "end_m": 3520,
+        "time_delta_s": 2.342,
+        "ref_min_speed_kmh": 54.4,
+        "comp_min_speed_kmh": 47.0,
+        "speed_delta_at_min_kmh": -7.4,
+        "ref_max_speed_kmh": 245.6,
+        "comp_max_speed_kmh": 246.0,
+        "ref_avg_brake": 380401.776,
+        "comp_avg_brake": 391223.244,
+        "ref_avg_throttle": 0.761,
+        "comp_avg_throttle": 0.745
+      }
+    ],
+    "corners": [
+      {
+        "corner_id": "T1",
+        "corner_name": "Turn 1",
+        "corner_type": "heavy_brake",
+        "dist_m": 200,
+        "time_delta_s": 0.849,
+        "ref_apex_speed_kmh": 95.1,
+        "comp_apex_speed_kmh": 84.7,
+        "apex_speed_delta_kmh": -10.4,
+        "ref_entry_speed_kmh": 180.7,
+        "comp_entry_speed_kmh": 156.5,
+        "entry_speed_delta_kmh": -24.2,
+        "ref_brake_point_m": 10.0,
+        "comp_brake_point_m": null,
+        "brake_point_delta_m": null,
+        "ref_throttle_pickup_m": 205.0,
+        "comp_throttle_pickup_m": 205.0,
+        "throttle_pickup_delta_m": 0.0
+      },
+      {
+        "corner_id": "T5",
+        "corner_name": "Turn 5",
+        "corner_type": "medium_corner",
+        "dist_m": 800,
+        "time_delta_s": 2.396,
+        "ref_apex_speed_kmh": 149.5,
+        "comp_apex_speed_kmh": 126.3,
+        "apex_speed_delta_kmh": -23.2,
+        "ref_entry_speed_kmh": 180.0,
+        "comp_entry_speed_kmh": 161.1,
+        "entry_speed_delta_kmh": -18.8,
+        "ref_brake_point_m": 720.0,
+        "comp_brake_point_m": 630.0,
+        "brake_point_delta_m": -90.0,
+        "ref_throttle_pickup_m": 805.0,
+        "comp_throttle_pickup_m": 805.0,
+        "throttle_pickup_delta_m": 0.0
+      },
+      {
+        "corner_id": "T8",
+        "corner_name": "Turn 8",
+        "corner_type": "heavy_brake",
+        "dist_m": 1800,
+        "time_delta_s": 5.458,
+        "ref_apex_speed_kmh": 128.9,
+        "comp_apex_speed_kmh": 93.2,
+        "apex_speed_delta_kmh": -35.6,
+        "ref_entry_speed_kmh": 173.7,
+        "comp_entry_speed_kmh": 157.8,
+        "entry_speed_delta_kmh": -15.9,
+        "ref_brake_point_m": 1605.0,
+        "comp_brake_point_m": 1600.0,
+        "brake_point_delta_m": -5.0,
+        "ref_throttle_pickup_m": 1805.0,
+        "comp_throttle_pickup_m": 1805.0,
+        "throttle_pickup_delta_m": 0.0
+      },
+      {
+        "corner_id": "T9",
+        "corner_name": "Turn 9",
+        "corner_type": "chicane",
+        "dist_m": 2100,
+        "time_delta_s": 5.603,
+        "ref_apex_speed_kmh": 213.4,
+        "comp_apex_speed_kmh": 206.3,
+        "apex_speed_delta_kmh": -7.1,
+        "ref_entry_speed_kmh": 225.0,
+        "comp_entry_speed_kmh": 219.3,
+        "entry_speed_delta_kmh": -5.6,
+        "ref_brake_point_m": 1935.0,
+        "comp_brake_point_m": 1950.0,
+        "brake_point_delta_m": 15.0,
+        "ref_throttle_pickup_m": 2105.0,
+        "comp_throttle_pickup_m": 2105.0,
+        "throttle_pickup_delta_m": 0.0
+      },
+      {
+        "corner_id": "T11",
+        "corner_name": "Turn 11",
+        "corner_type": "medium_corner",
+        "dist_m": 2600,
+        "time_delta_s": 5.585,
+        "ref_apex_speed_kmh": 54.4,
+        "comp_apex_speed_kmh": 47.0,
+        "apex_speed_delta_kmh": -7.4,
+        "ref_entry_speed_kmh": 245.0,
+        "comp_entry_speed_kmh": 245.3,
+        "entry_speed_delta_kmh": 0.4,
+        "ref_brake_point_m": 2410.0,
+        "comp_brake_point_m": 2475.0,
+        "brake_point_delta_m": 65.0,
+        "ref_throttle_pickup_m": 2640.0,
+        "comp_throttle_pickup_m": 2660.0,
+        "throttle_pickup_delta_m": 20.0
+      },
+      {
+        "corner_id": "T14",
+        "corner_name": "Turn 14",
+        "corner_type": "heavy_brake",
+        "dist_m": 3100,
+        "time_delta_s": 7.762,
+        "ref_apex_speed_kmh": 123.0,
+        "comp_apex_speed_kmh": 104.6,
+        "apex_speed_delta_kmh": -18.3,
+        "ref_entry_speed_kmh": 167.3,
+        "comp_entry_speed_kmh": 140.4,
+        "entry_speed_delta_kmh": -26.9,
+        "ref_brake_point_m": 2940.0,
+        "comp_brake_point_m": 2900.0,
+        "brake_point_delta_m": -40.0,
+        "ref_throttle_pickup_m": 3105.0,
+        "comp_throttle_pickup_m": 3105.0,
+        "throttle_pickup_delta_m": 0.0
+      }
+    ]
+  }
+}

@@ -344,7 +344,7 @@ def build_dashboard(analysis, coaching, ref_json, comp_json, race_result=None):
         {table_html}
         <div class="sec">Race Events</div>
         {event_html}"""
-
+    positives_section = ('<div class="sec">Whats Working</div><div class="positives">' + positive_items() + '</div>') if positives else ''  
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -573,7 +573,7 @@ body::before{{content:'';position:fixed;inset:0;background-image:repeating-linea
 <div class="sec">Corner Analysis</div>
 <div class="corners-grid">{corner_cards()}</div>
 
-{'<div class="sec">What\'s Working</div><div class="positives">' + positive_items() + '</div>' if positives else ''}
+{positives_section}
 
 {race_section()}
 
