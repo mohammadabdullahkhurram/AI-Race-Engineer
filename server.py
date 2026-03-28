@@ -465,6 +465,86 @@ def laps_json():
     return jsonify(load_lap_index())
 
 
+@app.route("/api/boundaries")
+def api_boundaries():
+    """Serves track boundary data immediately - no lap processing needed."""
+    left_bnd, right_bnd = [], []
+    for bnd_path in [BASE_DIR / "yas_marina_bnd.json",
+                     BASE_DIR.parent / "data/yas_marina_bnd.json"]:
+        if bnd_path.exists():
+            with open(bnd_path) as f:
+                bnd = json.load(f)["boundaries"]
+            step = 8
+            left_bnd  = bnd["left_border"][::step]
+            right_bnd = bnd["right_border"][::step]
+            break
+    return jsonify({
+        "ok":        len(left_bnd) > 0,
+        "left_bnd":  left_bnd,
+        "right_bnd": right_bnd,
+    })
+
+
+@app.route("/api/reference")
+def api_reference():
+    """
+    Returns the reference lap data for real-time coaching on the PC.
+    Downsampled to every 5th point to keep it fast.
+    """
+    ref_json = OUTPUT_DIR / "fast_laps.json"
+    if not ref_json.exists():
+        # Try to extract it
+        ref_mcap = str(BASE_DIR.parent / "data/hackathon_fast_laps.mcap")
+        try:
+            ref_data = extract_lap(ref_mcap, lap_label="fast_laps")
+            save_lap_json(ref_data, str(ref_json))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    with open(ref_json) as f:
+        data = json.load(f)
+
+    ch   = data["laps"][0]["channels"]
+    step = 5  # downsample
+
+    # Build corner lookup from last analysis if available
+    corners = []
+    analysis_path = OUTPUT_DIR / "laps"
+    # Find any existing analysis
+    for lap_dir in sorted(analysis_path.glob("lap_*")):
+        ap = lap_dir / "analysis.json"
+        if ap.exists():
+            with open(ap) as af:
+                an = json.load(af)
+            corners = an.get("corners", [])
+            break
+
+    # Load track boundaries
+    left_bnd, right_bnd = [], []
+    bnd_path = BASE_DIR.parent / "data/yas_marina_bnd.json"
+    if not bnd_path.exists():
+        bnd_path = BASE_DIR / "yas_marina_bnd.json"
+    if bnd_path.exists():
+        with open(bnd_path) as bf:
+            bnd = json.load(bf)["boundaries"]
+        bstep = 10  # downsample boundaries
+        left_bnd  = bnd["left_border"][::bstep]
+        right_bnd = bnd["right_border"][::bstep]
+
+    return jsonify({
+        "x":         ch["x"][::step],
+        "y":         ch["y"][::step],
+        "dist_m":    ch["dist_m"][::step],
+        "speed_kmh": ch["speed_kmh"][::step],
+        "throttle":  ch["throttle"][::step],
+        "brake":     ch["brake"][::step],
+        "corners":   corners,
+        "total_dist": ch["dist_m"][-1],
+        "left_bnd":  left_bnd,
+        "right_bnd": right_bnd,
+    })
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if "file" not in request.files:
@@ -613,6 +693,22 @@ if __name__ == "__main__":
         s.close()
     except Exception:
         local_ip = "unknown"
+
+    # Pre-generate reference lap on startup so PC can load it immediately
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    ref_json = OUTPUT_DIR / "fast_laps.json"
+    if not ref_json.exists():
+        ref_mcap = BASE_DIR.parent / "data/hackathon_fast_laps.mcap"
+        if ref_mcap.exists():
+            print("  Pre-generating reference lap...", end="", flush=True)
+            try:
+                ref_data = extract_lap(str(ref_mcap), lap_label="fast_laps")
+                save_lap_json(ref_data, str(ref_json))
+                print(" Done ✓")
+            except Exception as e:
+                print(f" Failed: {e}")
+        else:
+            print(f"  Note: {ref_mcap} not found — reference loads after first lap")
 
     print("\n" + "="*50)
     print("  AI Race Engineer — Session Manager")

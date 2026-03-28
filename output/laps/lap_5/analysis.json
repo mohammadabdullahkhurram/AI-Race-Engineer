@@ -1,0 +1,127 @@
+{
+  "ref_lap_time_s": 74.259,
+  "comp_lap_time_s": 64.589,
+  "total_time_delta_s": -9.67,
+  "ref_label": "fast_laps",
+  "comp_label": "ac_lap2",
+  "sectors": [
+    {
+      "sector_id": 1,
+      "sector_name": "Sector 1",
+      "start_m": 0.0,
+      "end_m": 1141.8,
+      "time_delta_s": -0.392,
+      "ref_min_speed_kmh": 94.4,
+      "comp_min_speed_kmh": 86.6,
+      "speed_delta_at_min_kmh": -7.8,
+      "ref_max_speed_kmh": 220.3,
+      "comp_max_speed_kmh": 230.6,
+      "ref_avg_brake": 232709.446,
+      "comp_avg_brake": 0.063,
+      "ref_avg_throttle": 0.757,
+      "comp_avg_throttle": 0.685
+    },
+    {
+      "sector_id": 2,
+      "sector_name": "Sector 2",
+      "start_m": 1141.8,
+      "end_m": 2283.5,
+      "time_delta_s": -0.701,
+      "ref_min_speed_kmh": 65.5,
+      "comp_min_speed_kmh": 69.3,
+      "speed_delta_at_min_kmh": 3.8,
+      "ref_max_speed_kmh": 239.4,
+      "comp_max_speed_kmh": 273.5,
+      "ref_avg_brake": 277270.262,
+      "comp_avg_brake": 0.041,
+      "ref_avg_throttle": 0.831,
+      "comp_avg_throttle": 0.776
+    },
+    {
+      "sector_id": 3,
+      "sector_name": "Sector 3",
+      "start_m": 2283.5,
+      "end_m": 3425.3,
+      "time_delta_s": 331.437,
+      "ref_min_speed_kmh": 54.4,
+      "comp_min_speed_kmh": 68.5,
+      "speed_delta_at_min_kmh": 14.1,
+      "ref_max_speed_kmh": 245.6,
+      "comp_max_speed_kmh": 278.6,
+      "ref_avg_brake": 567236.824,
+      "comp_avg_brake": 0.106,
+      "ref_avg_throttle": 0.644,
+      "comp_avg_throttle": 0.797
+    }
+  ],
+  "corners": [
+    {
+      "corner_id": "T1",
+      "corner_name": "Turn 1",
+      "corner_type": "heavy_brake",
+      "dist_m": 507.7,
+      "time_delta_s": 0.957,
+      "ref_apex_speed_kmh": 94.4,
+      "comp_apex_speed_kmh": 86.6,
+      "apex_speed_delta_kmh": -7.8,
+      "ref_entry_speed_kmh": 172.6,
+      "comp_entry_speed_kmh": 136.4,
+      "entry_speed_delta_kmh": -36.2,
+      "ref_brake_point_m": 325.0,
+      "comp_brake_point_m": 325.0,
+      "brake_point_delta_m": 0.0,
+      "ref_throttle_pickup_m": 510.0,
+      "comp_throttle_pickup_m": 510.0,
+      "throttle_pickup_delta_m": 0.0
+    },
+    {
+      "corner_id": "T2",
+      "corner_name": "Turn 2",
+      "corner_type": "heavy_brake",
+      "dist_m": 1520.1,
+      "time_delta_s": 2.354,
+      "ref_apex_speed_kmh": 65.5,
+      "comp_apex_speed_kmh": 69.3,
+      "apex_speed_delta_kmh": 3.8,
+      "ref_entry_speed_kmh": 172.3,
+      "comp_entry_speed_kmh": 73.1,
+      "entry_speed_delta_kmh": -99.2,
+      "ref_brake_point_m": 1335.0,
+      "comp_brake_point_m": 1325.0,
+      "brake_point_delta_m": -10.0,
+      "ref_throttle_pickup_m": 1525.0,
+      "comp_throttle_pickup_m": 1530.0,
+      "throttle_pickup_delta_m": 5.0
+    },
+    {
+      "corner_id": "T3",
+      "corner_name": "Turn 3",
+      "corner_type": "heavy_brake",
+      "dist_m": 2708.2,
+      "time_delta_s": -0.275,
+      "ref_apex_speed_kmh": 54.4,
+      "comp_apex_speed_kmh": 68.5,
+      "apex_speed_delta_kmh": 14.1,
+      "ref_entry_speed_kmh": 177.4,
+      "comp_entry_speed_kmh": 80.9,
+      "entry_speed_delta_kmh": -96.4,
+      "ref_brake_point_m": 2510.0,
+      "comp_brake_point_m": 2510.0,
+      "brake_point_delta_m": 0.0,
+      "ref_throttle_pickup_m": 2710.0,
+      "comp_throttle_pickup_m": 2710.0,
+      "throttle_pickup_delta_m": 0.0
+    }
+  ],
+  "worst_sections": [
+    {
+      "dist_m": 1465.0,
+      "time_lost_s": 2.998
+    },
+    {
+      "dist_m": 430.0,
+      "time_lost_s": 1.741
+    }
+  ],
+  "lap_dist_m": 3425.3
+}

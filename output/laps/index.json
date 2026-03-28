@@ -22,5 +22,77 @@
     "gap_s": -9.657,
     "samples": 3137,
     "timestamp": "2026-03-28T22:01:03.355501"
+  },
+  {
+    "lap_id": 4,
+    "label": "ac_lap1",
+    "lap_time_s": 114.895,
+    "gap_s": 40.636,
+    "samples": 3600,
+    "timestamp": "2026-03-28T23:10:33.491312"
+  },
+  {
+    "lap_id": 5,
+    "label": "ac_lap2",
+    "lap_time_s": 64.589,
+    "gap_s": -9.67,
+    "samples": 3127,
+    "timestamp": "2026-03-28T23:11:37.562219"
+  },
+  {
+    "lap_id": 6,
+    "label": "ac_lap1",
+    "lap_time_s": 104.432,
+    "gap_s": 30.173,
+    "samples": 3908,
+    "timestamp": "2026-03-28T23:30:43.885576"
+  },
+  {
+    "lap_id": 7,
+    "label": "ac_lap1",
+    "lap_time_s": 111.049,
+    "gap_s": 36.79,
+    "samples": 4848,
+    "timestamp": "2026-03-28T23:35:56.040837"
+  },
+  {
+    "lap_id": 8,
+    "label": "ac_lap1",
+    "lap_time_s": 139.223,
+    "gap_s": 64.964,
+    "samples": 4400,
+    "timestamp": "2026-03-28T23:38:38.348006"
+  },
+  {
+    "lap_id": 9,
+    "label": "ac_lap1",
+    "lap_time_s": 151.683,
+    "gap_s": 77.424,
+    "samples": 6716,
+    "timestamp": "2026-03-28T23:48:07.749515"
+  },
+  {
+    "lap_id": 10,
+    "label": "ac_lap2",
+    "lap_time_s": 85.787,
+    "gap_s": 11.528,
+    "samples": 4125,
+    "timestamp": "2026-03-28T23:49:33.243291"
+  },
+  {
+    "lap_id": 11,
+    "label": "ac_lap1",
+    "lap_time_s": 89.525,
+    "gap_s": 15.266,
+    "samples": 3774,
+    "timestamp": "2026-03-28T23:51:53.728952"
+  },
+  {
+    "lap_id": 12,
+    "label": "ac_lap2",
+    "lap_time_s": 66.679,
+    "gap_s": -7.58,
+    "samples": 3205,
+    "timestamp": "2026-03-28T23:53:00.274209"
   }
 ]
