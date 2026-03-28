@@ -1,0 +1,52 @@
+{
+  "summary": {
+    "total_laps": 3,
+    "total_time_s": 225.97,
+    "best_lap_number": 1,
+    "best_lap_time_s": 62.729,
+    "worst_lap_time_s": 86.491,
+    "lap_time_range_s": 23.762,
+    "total_events": 0,
+    "defensive_brakes": 0,
+    "lift_offs": 0,
+    "pace_vs_ref_s": -11.53
+  },
+  "laps": [
+    {
+      "lap_number": 1,
+      "lap_time_s": 62.729,
+      "ref_time_s": 74.259,
+      "time_delta_s": -11.53,
+      "avg_speed_delta": -55.8,
+      "min_speed_delta": -92.89,
+      "avg_throttle": 0.454,
+      "avg_brake": 248586.229
+    },
+    {
+      "lap_number": 2,
+      "lap_time_s": 76.75,
+      "ref_time_s": 74.259,
+      "time_delta_s": 2.491,
+      "avg_speed_delta": -71.22,
+      "min_speed_delta": -155.16,
+      "avg_throttle": 0.332,
+      "avg_brake": 227038.822
+    },
+    {
+      "lap_number": 3,
+      "lap_time_s": 86.491,
+      "ref_time_s": 74.259,
+      "time_delta_s": 12.232,
+      "avg_speed_delta": -77.8,
+      "min_speed_delta": -180.41,
+      "avg_throttle": 0.362,
+      "avg_brake": 187258.96
+    }
+  ],
+  "lap_events": [
+    [],
+    [],
+    []
+  ],
+  "all_events": []
+}
