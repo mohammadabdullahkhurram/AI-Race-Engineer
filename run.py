@@ -18,10 +18,11 @@ from coach         import generate_coaching_report, print_coaching_report
 from race_analyzer import run_race_analysis
 
 # ── CONFIG — change these if your filenames differ ───────────────────────────
-REF_MCAP   = "data/hackathon_fast_laps.mcap"
-COMP_MCAP  = "data/hackathon_good_lap.mcap"
-OUTPUT_DIR = "output"
-RACE_MCAP  = "data/hackathon_wheel_to_wheel.mcap"
+BASE_DIR   = Path(__file__).parent
+REF_MCAP   = str(BASE_DIR.parent / "data/hackathon_fast_laps.mcap")
+COMP_MCAP  = str(BASE_DIR.parent / "data/hackathon_good_lap.mcap")
+OUTPUT_DIR = str(BASE_DIR / "output")
+RACE_MCAP  = str(BASE_DIR.parent / "data/hackathon_wheel_to_wheel.mcap")
 # ─────────────────────────────────────────────────────────────────────────────
 
 
