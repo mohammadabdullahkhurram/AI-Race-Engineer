@@ -27,9 +27,8 @@ except ImportError:
     import requests
 
 
-BASE_DIR = Path(_file_).resolve().parent
-MAP_PNG = BASE_DIR / "map.jpeg"
-MAP_INI = BASE_DIR / "map.ini"
+MAP_PNG = "src/map.jpeg"
+MAP_INI = "src/map.ini"
 
 POLL_HZ = 20.0
 CAR_LENGTH_M = 5.0
