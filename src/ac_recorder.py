@@ -1,13 +1,17 @@
 """
-ac_recorder.py — AI Race Engineer · Lap Recorder
+ac_recorder_combined.py — AI Race Engineer · Lap Recorder
 Run on your Windows PC while Assetto Corsa is open.
 
 1. Start AC, load Yas Marina North
-2. Run: python ac_recorder.py
-3. Enter Mac IP once
-4. Open http://localhost:9000 in your browser on the PC
-5. Drive — recording starts when you cross S/F line
-6. Data sends to Mac automatically, CSV saved to Desktop
+2. Set env vars (PowerShell):
+     $env:LIVE_PUSH_URL="https://your-backend.example.com/api/live-telemetry"
+     $env:LIVE_PUSH_TOKEN="your-shared-secret"   # optional
+3. Run: python ac_recorder_combined.py
+4. Open http://localhost:9000 in your browser
+5. Drive — recording starts when you cross S/F line (or on pit start)
+6. Lap CSVs save to Desktop; live telemetry pushes to Lovable cloud
+
+No Mac address required.
 """
 
 import ctypes, mmap, csv, time, sys, os, io, json, threading, math
@@ -32,30 +36,42 @@ CAR_LENGTH_M = 5.0
 CAR_WIDTH_M = 1.9
 MAX_PATH_POINTS = 5000
 
+# Live relay config — set via environment variables before running
+LIVE_PUSH_URL   = os.getenv("LIVE_PUSH_URL",   "").strip()
+LIVE_PUSH_TOKEN = os.getenv("LIVE_PUSH_TOKEN", "").strip()
+LIVE_PUSH_HZ    = float(os.getenv("LIVE_PUSH_HZ", "5"))
+CORS_ALLOW_ORIGIN   = os.getenv("CORS_ALLOW_ORIGIN", "*").strip() or "*"
+LOCAL_REFERENCE_JSON  = os.getenv("LOCAL_REFERENCE_JSON",  "").strip()
+LOCAL_BOUNDARIES_JSON = os.getenv("LOCAL_BOUNDARIES_JSON", "").strip()
+ENABLE_LOCAL_UI = os.getenv("ENABLE_LOCAL_UI", "1").strip().lower() not in ("0", "false", "no", "off")
+UI_AUTO_OPEN    = os.getenv("UI_AUTO_OPEN",    "0").strip().lower() in ("1", "true", "yes", "on")
+
+UI_PORT = None
+
+
 # ── Shared state (updated by recorder, read by web UI) ────────────────────────
 state = {
     "status":    "waiting",   # waiting | recording | done | sending
     "lap_num":   0,
-    "lap_time":  None,        # formatted string
+    "lap_time":  None,
     "samples":   0,
     "speed":     0,
     "gear":      0,
     "cur_time":  "0:00.000",
     "throttle":  0,
     "brake":     0,
-    "mac_ip":    "",
-    "mac_port":  8080,
-    "history":   [],          # list of {lap, time, samples}
+    "history":   [],
     "connected": False,
-    "car_x": None,
-    "car_z": None,
-    "path": [],
-    "pixel_x": None,
-    "pixel_y": None,
+    "car_x":     None,
+    "car_z":     None,
+    "path":      [],
+    "pixel_x":   None,
+    "pixel_y":   None,
     "heading_rad": 0.0,
-    "map": {},
-    "completed_laps": 0,
-    "current_time_ms": 0,
+    "map":       {},
+    "completed_laps":    0,
+    "current_time_ms":   0,
+    "coaching":  {},
 }
 
 
@@ -95,12 +111,8 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .lap-badge{margin-left:auto;font-family:var(--fd);font-size:13px;font-weight:700;letter-spacing:2px;color:var(--muted)}
 .lap-progress{height:2px;background:var(--border)}
 .lap-progress-fill{height:100%;background:var(--red);transition:width .4s linear;width:0}
-
-/* Main layout: map left, coaching right */
 .wrap{padding:16px 20px;max-width:1400px;margin:0 auto}
 .main-grid{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:16px}
-
-/* Track map */
 .map-card{background:var(--bg2);border:1px solid var(--border);padding:14px;height:100%}
 .map-header{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between}
 .map-container{position:relative;width:fit-content;max-width:100%;margin:0 auto;background:#000;overflow:auto;border:1px solid var(--border)}
@@ -109,11 +121,7 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .map-legend{display:flex;gap:14px;margin-top:8px;flex-wrap:wrap}
 .ml-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
 .ml-dot{width:10px;height:3px;border-radius:1px}
-
-/* Right column */
 .right-col{display:flex;flex-direction:column;gap:12px}
-
-/* Hero stats */
 .hero{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px}
 .hero-cell{background:var(--bg2);border:1px solid var(--border);padding:14px 16px;text-align:center}
 .hero-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
@@ -122,8 +130,6 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .hero-val.speed{color:var(--teal)}
 .hero-val.samples{color:var(--yellow)}
 .hero-unit{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
-
-/* Gauges */
 .gauges-row{display:grid;grid-template-columns:60px 1fr;gap:10px}
 .gear-display{background:var(--bg2);border:1px solid var(--border);padding:10px;text-align:center}
 .gear-val{font-family:var(--fd);font-size:52px;font-weight:800;color:var(--yellow);line-height:1}
@@ -136,8 +142,6 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .gauge-fill{height:100%;transition:width .1s linear}
 .gauge-fill.throttle{background:var(--teal)}
 .gauge-fill.brake{background:var(--red)}
-
-/* LIVE COACHING PANEL */
 .coaching-card{background:var(--bg2);border:1px solid var(--border);overflow:hidden;flex:1}
 .coaching-top-bar{height:3px;background:#333;transition:background .2s}
 .coaching-top-bar.danger{background:var(--red)}
@@ -155,14 +159,10 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .cs-cell:last-child{border-right:none}
 .cs-label{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
 .cs-val{font-family:var(--fd);font-size:20px;font-weight:700}
-
-/* Corner ahead */
 .corner-ahead{background:var(--bg3);border:1px solid var(--border2);border-left:3px solid var(--yellow);padding:10px 14px;display:none}
 .ca-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
 .ca-name{font-family:var(--fd);font-size:18px;font-weight:700;color:var(--yellow);line-height:1}
 .ca-detail{font-size:10px;color:var(--muted);margin-top:4px}
-
-/* Lap history */
 .history{background:var(--bg2);border:1px solid var(--border)}
 .history-header{padding:10px 16px;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between}
 .history-row{display:grid;grid-template-columns:60px 1fr 1fr 80px;padding:10px 16px;border-bottom:1px solid #111;font-size:11px}
@@ -184,7 +184,7 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
     <div class="brand-flag"></div>
     <div><div class="brand-name">AC Recorder</div><div class="brand-sub">AI Race Engineer · Yas Marina</div></div>
   </div>
-  <div class="session-info" id="macInfo">Windows PC · Live Telemetry<span id="macLink">—</span></div>
+  <div class="session-info" id="sourceInfo">Windows PC · Local Telemetry<span id="relayInfo">Standalone</span></div>
 </div>
 <div class="status-bar">
   <div class="status-dot" id="dot"></div>
@@ -194,19 +194,14 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 <div class="lap-progress"><div class="lap-progress-fill" id="lapProg"></div></div>
 
 <div class="wrap">
-
-  <!-- WAITING STATE -->
   <div class="waiting-msg" id="waitingMsg">
     <div class="waiting-icon">🏁</div>
     <div class="waiting-title">Standing By</div>
     <div class="waiting-sub" id="waitSub">Cross the start/finish line to begin recording</div>
   </div>
 
-  <!-- RECORDING STATE -->
   <div id="recordingUI" style="display:none">
     <div class="main-grid">
-
-      <!-- LEFT: Track map -->
       <div class="map-card">
         <div class="map-header">
           <span>Track Position — Live</span>
@@ -222,18 +217,12 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
           <div class="ml-item"><div class="ml-dot" style="background:var(--yellow);border-radius:50%;width:8px;height:8px"></div>S/F line</div>
         </div>
       </div>
-
-      <!-- RIGHT: Coaching + Stats -->
       <div class="right-col">
-
-        <!-- Hero stats -->
         <div class="hero">
           <div class="hero-cell"><div class="hero-label">Lap Time</div><div class="hero-val time" id="heroTime">0:00.000</div><div class="hero-unit">current</div></div>
           <div class="hero-cell"><div class="hero-label">Speed</div><div class="hero-val speed" id="heroSpeed">0</div><div class="hero-unit">km/h</div></div>
           <div class="hero-cell"><div class="hero-label">Samples</div><div class="hero-val samples" id="heroSamples">0</div><div class="hero-unit">@ 50 Hz</div></div>
         </div>
-
-        <!-- Gear + Gauges -->
         <div class="gauges-row">
           <div class="gear-display"><div class="gear-val" id="heroGear">N</div><div class="gear-lbl">Gear</div></div>
           <div class="gauges-col">
@@ -241,15 +230,11 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
             <div class="gauge-card"><div class="gauge-label">Brake <span id="gBrake">0%</span></div><div class="gauge-track"><div class="gauge-fill brake" id="gBrakeFill" style="width:0%"></div></div></div>
           </div>
         </div>
-
-        <!-- Corner ahead -->
         <div class="corner-ahead" id="cornerAhead">
           <div class="ca-label">⚠ Corner Ahead</div>
           <div class="ca-name" id="caName">—</div>
           <div class="ca-detail" id="caDetail"></div>
         </div>
-
-        <!-- Live coaching -->
         <div class="coaching-card">
           <div class="coaching-top-bar info" id="coachBar"></div>
           <div class="coaching-tag">Live Coaching — vs A2RL</div>
@@ -261,11 +246,8 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
             <div class="cs-cell"><div class="cs-label">Delta</div><div class="cs-val" id="csDelta">—</div></div>
           </div>
         </div>
-
       </div>
     </div>
-
-    <!-- Lap history below -->
     <div class="history">
       <div class="history-header">
         <span>Lap History</span>
@@ -273,10 +255,8 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
       </div>
       <div id="historyBody"><div class="empty">No laps recorded yet — cross the S/F line to begin</div></div>
     </div>
-
   </div>
 
-  <!-- Waiting lap history -->
   <div id="waitingHistory" style="margin-top:16px">
     <div class="history">
       <div class="history-header">
@@ -286,24 +266,16 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
       <div id="historyBodyWait"><div class="empty">No laps recorded yet — cross the S/F line to begin</div></div>
     </div>
   </div>
-
 </div>
 
 <script>
-const sampleHistory = [];
-let chartCtx = null;
 let mapCtx = null;
-let _lastCarX = null, _lastCarZ = null;
 const trackImg = document.getElementById('trackImage');
 
 window.addEventListener('load', () => {
   const mc = document.getElementById('trackOverlay');
   if (mc) { mapCtx = mc.getContext('2d'); }
-  const sc = document.getElementById('samplesChart');
-  if (sc) chartCtx = sc.getContext('2d');
-  if (trackImg) {
-    trackImg.addEventListener('load', () => drawMap());
-  }
+  if (trackImg) { trackImg.addEventListener('load', () => drawMap()); }
   drawMap();
 });
 
@@ -311,12 +283,9 @@ function resizeMapCanvas() {
   if (!mapCtx || !trackImg) return null;
   const c = mapCtx.canvas;
   const rect = trackImg.getBoundingClientRect();
-  c.width = rect.width;
-  c.height = rect.height;
-  c.style.width = rect.width + 'px';
-  c.style.height = rect.height + 'px';
-  c.style.left = '0px';
-  c.style.top = '0px';
+  c.width = rect.width; c.height = rect.height;
+  c.style.width = rect.width + 'px'; c.style.height = rect.height + 'px';
+  c.style.left = '0px'; c.style.top = '0px';
   return { W: c.width, H: c.height };
 }
 
@@ -324,8 +293,7 @@ function drawMap() {
   if (!mapCtx || !trackImg) return;
   const dims = resizeMapCanvas();
   if (!dims) return;
-  const { W, H } = dims;
-  mapCtx.clearRect(0, 0, W, H);
+  mapCtx.clearRect(0, 0, dims.W, dims.H);
 }
 window.addEventListener('resize', drawMap);
 
@@ -334,170 +302,134 @@ function drawLiveOverlay(data) {
   const dims = resizeMapCanvas();
   if (!dims) return;
   const { W, H } = dims;
+  const nat = { w: trackImg.naturalWidth || W, h: trackImg.naturalHeight || H };
+  const scaleX = W / nat.w, scaleY = H / nat.h;
 
   mapCtx.clearRect(0, 0, W, H);
 
-  const baseW = (data.map && data.map.width) || trackImg.naturalWidth || 1266;
-  const baseH = (data.map && data.map.height) || trackImg.naturalHeight || 608;
-  const scaleFactor = (data.map && data.map.scale_factor) || 1;
-
-  const sx = W / baseW;
-  const sy = H / baseH;
-
+  // Draw path
   const path = data.path || [];
   if (path.length > 1) {
     mapCtx.beginPath();
-    mapCtx.lineWidth = 3;
-    mapCtx.strokeStyle = '#E8002D';
-    mapCtx.lineCap = 'round';
+    mapCtx.strokeStyle = 'rgba(232,0,45,0.8)';
+    mapCtx.lineWidth = 2;
     mapCtx.lineJoin = 'round';
-    for (let i = 0; i < path.length; i++) {
-      const x = path[i][0] * sx;
-      const y = path[i][1] * sy;
-      if (i === 0) mapCtx.moveTo(x, y);
-      else mapCtx.lineTo(x, y);
+    mapCtx.moveTo(path[0][0] * scaleX, path[0][1] * scaleY);
+    for (let i = 1; i < path.length; i++) {
+      mapCtx.lineTo(path[i][0] * scaleX, path[i][1] * scaleY);
     }
     mapCtx.stroke();
   }
 
+  // Draw car dot
   if (data.pixel_x !== null && data.pixel_y !== null) {
-    const x = data.pixel_x * sx;
-    const y = data.pixel_y * sy;
-    const pxPerMeterX = sx / scaleFactor;
-    const pxPerMeterY = sy / scaleFactor;
-    const carLengthPx = 5.0 * pxPerMeterX;
-    const carWidthPx = 1.9 * pxPerMeterY;
-
-    mapCtx.save();
-    mapCtx.translate(x, y);
-    mapCtx.rotate(data.heading_rad || 0);
-
-    mapCtx.fillStyle = 'rgba(255,255,255,0.14)';
-    mapCtx.fillRect(-carLengthPx * 0.5, -carWidthPx * 0.5, carLengthPx, carWidthPx);
-
-    mapCtx.fillStyle = '#ffffff';
-    mapCtx.fillRect(-carLengthPx * 0.42, -carWidthPx * 0.42, carLengthPx * 0.84, carWidthPx * 0.84);
-
-    mapCtx.fillStyle = '#00D2BE';
-    mapCtx.fillRect(carLengthPx * 0.12, -carWidthPx * 0.25, carLengthPx * 0.22, carWidthPx * 0.50);
-
-    mapCtx.restore();
+    const cx = data.pixel_x * scaleX, cy = data.pixel_y * scaleY;
+    mapCtx.beginPath();
+    mapCtx.arc(cx, cy, 6, 0, Math.PI * 2);
+    mapCtx.fillStyle = '#FFD700';
+    mapCtx.fill();
+    mapCtx.strokeStyle = '#000';
+    mapCtx.lineWidth = 1.5;
+    mapCtx.stroke();
   }
 }
 
-window.addEventListener('resize', () => drawMap());
+function gearLabel(g) {
+  if (g === 0) return 'N';
+  if (g === -1) return 'R';
+  return String(g);
+}
 
-// ── Coaching update ───────────────────────────────────────────────────────────
 function updateCoachingUI(c) {
   if (!c) return;
-  const sev  = c.severity || 'info';
-  const bar  = document.getElementById('coachBar');
-  const msg  = document.getElementById('coachMsg');
-  const sub  = document.getElementById('coachSub');
-  bar.className  = 'coaching-top-bar ' + sev;
-  msg.className  = 'coaching-msg ' + sev;
-  msg.textContent = c.message  || '';
-  sub.textContent = c.sub      || '';
-  const delta = c.speed_delta || 0;
-  document.getElementById('csYou').textContent  = Math.round(c.cur_speed || 0) + ' km/h';
-  document.getElementById('csRef').textContent  = Math.round(c.ref_speed || 0) + ' km/h';
-  const dEl = document.getElementById('csDelta');
-  dEl.textContent   = (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' km/h';
-  dEl.style.color   = delta >= 0 ? 'var(--teal)' : 'var(--red)';
-  document.getElementById('lapProg').style.width = (c.lap_pct || 0) + '%';
-  if (c.dist_m) document.getElementById('mapDist').textContent = Math.round(c.dist_m) + 'm';
-  // Corner ahead
+  const sev = c.severity || 'info';
+  const bar = document.getElementById('coachBar');
+  const msg = document.getElementById('coachMsg');
+  const sub = document.getElementById('coachSub');
+  if (bar) { bar.className = 'coaching-top-bar ' + sev; }
+  if (msg) { msg.className = 'coaching-msg ' + sev; msg.textContent = c.message || ''; }
+  if (sub) { sub.textContent = c.sub || ''; }
+  const you = document.getElementById('csYou');
+  const ref = document.getElementById('csRef');
+  const delta = document.getElementById('csDelta');
+  if (you) you.textContent = c.cur_speed ? c.cur_speed + ' km/h' : '—';
+  if (ref) ref.textContent = c.ref_speed ? c.ref_speed + ' km/h' : '—';
+  if (delta && c.speed_delta !== undefined) {
+    const d = c.speed_delta;
+    delta.textContent = (d > 0 ? '+' : '') + d + ' km/h';
+    delta.style.color = d > 5 ? 'var(--teal)' : d < -12 ? 'var(--red)' : '#fff';
+  }
   const ca = document.getElementById('cornerAhead');
-  if (c.corner_ahead && c.dist_m) {
-    const dist_to = Math.round(c.corner_ahead.dist_m - c.dist_m);
-    if (dist_to > 0 && dist_to < 300) {
-      ca.style.display = 'block';
-      document.getElementById('caName').textContent =
-        c.corner_ahead.corner_name + ' — ' + dist_to + 'm ahead';
-      const apex = (c.corner_ahead.ref_apex_speed_kmh || 0).toFixed(0);
-      const bp   = Math.round((c.corner_ahead.ref_brake_point_m || 0) - c.dist_m);
-      document.getElementById('caDetail').textContent =
-        'Brake in ' + bp + 'm  ·  Target apex ' + apex + ' km/h';
-    } else { ca.style.display = 'none'; }
-  } else { ca.style.display = 'none'; }
+  const caName = document.getElementById('caName');
+  const caDetail = document.getElementById('caDetail');
+  if (ca && c.corner_ahead) {
+    ca.style.display = 'block';
+    if (caName) caName.textContent = c.corner_ahead.corner_name || '';
+    if (caDetail) caDetail.textContent = 'Apex ' + (c.corner_ahead.ref_apex_speed_kmh || 0).toFixed(0) + ' km/h';
+  } else if (ca) {
+    ca.style.display = 'none';
+  }
 }
 
-// ── History rendering ─────────────────────────────────────────────────────────
 function renderHistory(history, bodyId, totalId) {
-  if (!history || history.length === 0) return;
-  const times  = history.map(h => {
-    const p = h.time.split(':');
-    return p.length===2 ? parseFloat(p[0])*60+parseFloat(p[1]) : parseFloat(h.time);
-  });
-  const bestIdx = times.indexOf(Math.min(...times));
-  if (totalId) document.getElementById(totalId).textContent =
-    history.length + ' LAP' + (history.length>1?'S':'');
-  document.getElementById(bodyId).innerHTML = history.slice().reverse().map((h,i) => {
-    const origIdx = history.length-1-i;
-    const isBest  = origIdx===bestIdx && history.length>1;
-    return `<div class="history-row" style="${isBest?'border-left:2px solid var(--teal);padding-left:14px':''}">
-      <div class="lap" style="${isBest?'color:var(--teal)':''}">LAP ${h.lap}${isBest?' ★':''}</div>
-      <div class="ht" style="${isBest?'color:var(--teal)':''}">${h.time}</div>
-      <div class="hs">${h.samples.toLocaleString()} pts</div>
-      <a class="dl" href="/download/${h.lap}" download="ac_lap${h.lap}.csv">↓ CSV</a>
-    </div>`;
-  }).join('');
+  const body = document.getElementById(bodyId);
+  const total = document.getElementById(totalId);
+  if (!body) return;
+  if (!history || history.length === 0) {
+    body.innerHTML = '<div class="empty">No laps recorded yet — cross the S/F line to begin</div>';
+    if (total) total.textContent = '';
+    return;
+  }
+  if (total) total.textContent = history.length + ' lap' + (history.length !== 1 ? 's' : '');
+  body.innerHTML = history.slice().reverse().map(h =>
+    '<div class="history-row">' +
+    '<span class="lap">LAP ' + h.lap + '</span>' +
+    '<span class="ht">' + h.time + '</span>' +
+    '<span class="hs">' + h.samples + ' samples</span>' +
+    '<a class="dl" href="/download/' + h.lap + '">Download</a>' +
+    '</div>'
+  ).join('');
 }
-
-// ── Main poll ─────────────────────────────────────────────────────────────────
-function gearLabel(g){return g<=0?'R':String(g);}
-function fmt(ms){if(ms<=0)return'0:00.000';const m=ms/60000|0,s=(ms%60000)/1000;return m+':'+s.toFixed(3).padStart(6,'0');}
 
 async function poll() {
   try {
-    const res  = await fetch('/state');
-    const data = await res.json();
+    const r = await fetch('/state');
+    const data = await r.json();
+    const st = data.status || 'waiting';
+    const isRecording = (st === 'recording');
+
+    document.getElementById('waitingMsg').style.display   = isRecording ? 'none' : 'block';
+    document.getElementById('recordingUI').style.display  = isRecording ? 'block' : 'none';
+    document.getElementById('waitingHistory').style.display = isRecording ? 'none' : 'block';
 
     const dot  = document.getElementById('dot');
     const stxt = document.getElementById('statusText');
-    const lb   = document.getElementById('lapBadge');
-    const wMsg = document.getElementById('waitingMsg');
-    const rUI  = document.getElementById('recordingUI');
-    const wHis = document.getElementById('waitingHistory');
-    const mLink= document.getElementById('macLink');
+    if (dot)  { dot.className  = 'status-dot '  + st; }
+    if (stxt) { stxt.className = 'status-text ' + st; stxt.textContent = st.toUpperCase(); }
 
-    if (data.mac_ip) mLink.textContent = data.mac_ip + ':' + data.mac_port;
+    const badge = document.getElementById('lapBadge');
+    if (badge && data.lap_num) badge.textContent = 'LAP ' + data.lap_num;
 
-    dot.className  = 'status-dot '  + data.status;
-    stxt.className = 'status-text ' + data.status;
-    lb.textContent = 'LAP ' + data.lap_num;
+    const relay = data.relay || {};
+    const ri = document.getElementById('relayInfo');
+    if (ri) {
+      ri.textContent = relay.enabled
+        ? (relay.sent_ok ? '● Cloud relay active' : '○ Cloud relay error')
+        : 'Standalone';
+    }
 
-    if (data.status === 'waiting') {
-      const isFirst = data.lap_num <= 1;
-      stxt.textContent = isFirst
-        ? 'Waiting for start/finish line...'
-        : 'Lap ' + (data.lap_num-1) + ' complete — waiting for lap ' + data.lap_num;
-      wMsg.style.display = isFirst ? 'block' : 'none';
-      rUI.style.display  = isFirst ? 'none'  : 'block';
-      wHis.style.display = isFirst ? 'block' : 'none';
-      drawMap();
-      sampleHistory.length = 0;
-    } else if (data.status === 'recording' || data.status === 'sending' || data.status === 'done') {
-      stxt.textContent = data.status==='recording' ? '● RECORDING' :
-                         data.status==='sending'   ? 'Sending to Mac...' : '✓ Lap complete';
-      wMsg.style.display = 'none';
-      rUI.style.display  = 'block';
-      wHis.style.display = 'none';
-
-      document.getElementById('heroTime').textContent    = data.cur_time   || '0:00.000';
+    if (isRecording) {
+      document.getElementById('heroTime').textContent    = data.cur_time    || '0:00.000';
       document.getElementById('heroSpeed').textContent   = Math.round(data.speed || 0);
-      document.getElementById('heroSamples').textContent = (data.samples||0).toLocaleString();
+      document.getElementById('heroSamples').textContent = data.samples     || 0;
       document.getElementById('heroGear').textContent    = gearLabel(data.gear || 0);
-      const thr = Math.round((data.throttle||0)*100);
-      const brk = Math.round((data.brake||0)*100);
-      document.getElementById('gThrottle').textContent    = thr + '%';
-      document.getElementById('gBrake').textContent       = brk + '%';
+      const thr = Math.round((data.throttle || 0) * 100);
+      const brk = Math.round((data.brake    || 0) * 100);
+      document.getElementById('gThrottle').textContent     = thr + '%';
+      document.getElementById('gBrake').textContent        = brk + '%';
       document.getElementById('gThrottleFill').style.width = thr + '%';
-      document.getElementById('gBrakeFill').style.width   = brk + '%';
-
-      // Coaching
+      document.getElementById('gBrakeFill').style.width    = brk + '%';
       if (data.coaching) updateCoachingUI(data.coaching);
-
       drawLiveOverlay(data);
       if (data.pixel_x !== null && data.pixel_y !== null) {
         document.getElementById('mapDist').textContent =
@@ -505,12 +437,10 @@ async function poll() {
       }
     }
 
-    // History (both panels)
     if (data.history && data.history.length > 0) {
       renderHistory(data.history, 'historyBody',     'totalLaps');
       renderHistory(data.history, 'historyBodyWait', 'totalLapsWait');
     }
-
   } catch(e) {}
 }
 
@@ -646,10 +576,8 @@ FIELDS = [
     "BrakeTempFL", "BrakeTempFR", "BrakeTempRL", "BrakeTempRR",
 ]
 
-# Store CSVs per lap for individual download
 lap_csvs = {}
 
-# Reference lap data for real-time coaching
 ref_data = {
     "loaded": False,
     "x": [], "y": [], "dist_m": [],
@@ -660,73 +588,208 @@ ref_data = {
     "right_bnd": [],
 }
 
-# Live coaching state
 coaching_state = {
-    "message":    "Waiting for lap...",
-    "sub":        "",
-    "severity":   "info",   # info | warn | danger | good
+    "message":     "Waiting for lap...",
+    "sub":         "",
+    "severity":    "info",
     "corner_ahead": None,
-    "ref_speed":  0,
-    "cur_speed":  0,
+    "ref_speed":   0,
+    "cur_speed":   0,
     "speed_delta": 0,
-    "dist_m":     0,
-    "lap_pct":    0,
+    "dist_m":      0,
+    "lap_pct":     0,
+}
+
+relay_state = {
+    "enabled":      bool(LIVE_PUSH_URL),
+    "last_error":   "",
+    "last_push_ts": 0.0,
+    "sent_ok":      False,
 }
 
 
-def load_reference(mac_ip, port):
-    """Fetch reference lap data from Mac server.
-    Boundaries are fetched separately so map shows even before lap processing."""
-    # Step 1: always try to load boundaries (available immediately on server start)
-    try:
-        r_bnd = requests.get(f"http://{mac_ip}:{port}/api/boundaries", timeout=5)
-        bnd   = r_bnd.json()
-        if bnd.get("ok"):
-            ref_data["left_bnd"]  = bnd.get("left_bnd",  [])
-            ref_data["right_bnd"] = bnd.get("right_bnd", [])
-            print(f"  Boundaries loaded: {len(ref_data['left_bnd'])} left, "
-                  f"{len(ref_data['right_bnd'])} right points")
-    except Exception as e:
-        print(f"  Boundaries not available: {e}")
+# ── Cloud relay (Lovable / Supabase) ─────────────────────────────────────────
 
-    # Step 2: try to load full reference lap
+def build_public_state_snapshot():
+    snapshot = json.loads(json.dumps(state))
+    path_pts = snapshot.get("path") or []
+    if len(path_pts) > 800:
+        snapshot["path"] = path_pts[-800:]
+    hist = snapshot.get("history") or []
+    if len(hist) > 20:
+        snapshot["history"] = hist[-20:]
+    snapshot["coaching"] = json.loads(json.dumps(coaching_state))
+    snapshot["relay"] = {
+        "enabled":    relay_state["enabled"],
+        "sent_ok":    relay_state["sent_ok"],
+        "last_error": relay_state["last_error"],
+        "push_url":   LIVE_PUSH_URL,
+    }
+    snapshot["updated_at"] = time.time()
+    return snapshot
+
+
+def push_live_state(force=False):
+    if not LIVE_PUSH_URL:
+        return False
+    now = time.time()
+    min_interval = 1.0 / max(LIVE_PUSH_HZ, 0.5)
+    if not force and now - relay_state["last_push_ts"] < min_interval:
+        return False
+    headers = {"Content-Type": "application/json"}
+    if LIVE_PUSH_TOKEN:
+        headers["Authorization"] = f"Bearer {LIVE_PUSH_TOKEN}"
+    payload = build_public_state_snapshot()
     try:
-        r = requests.get(f"http://{mac_ip}:{port}/api/reference", timeout=10)
-        data = r.json()
-        if "error" in data:
-            print(f"  Reference lap not ready yet: {data['error']}")
-            # Return True if we at least have boundaries for the map
-            return len(ref_data["left_bnd"]) > 0
-        ref_data["x"]         = data["x"]
-        ref_data["y"]         = data["y"]
-        ref_data["dist_m"]    = data["dist_m"]
-        ref_data["speed_kmh"] = data["speed_kmh"]
-        ref_data["throttle"]  = data["throttle"]
-        ref_data["brake"]     = data["brake"]
-        ref_data["corners"]   = data.get("corners", [])
-        ref_data["total_dist"]= data.get("total_dist", 3425)
-        if data.get("left_bnd"):  ref_data["left_bnd"]  = data["left_bnd"]
-        if data.get("right_bnd"): ref_data["right_bnd"] = data["right_bnd"]
-        ref_data["loaded"]    = True
-        print(f"  Reference loaded: {len(ref_data['x'])} points, "
-              f"{len(ref_data['corners'])} corners, "
-              f"{len(ref_data['left_bnd'])} boundary points")
+        resp = requests.post(LIVE_PUSH_URL, json=payload, headers=headers, timeout=2.5)
+        relay_state["last_push_ts"] = now
+        relay_state["sent_ok"] = 200 <= resp.status_code < 300
+        relay_state["last_error"] = "" if relay_state["sent_ok"] else f"HTTP {resp.status_code}: {resp.text[:200]}"
+        return relay_state["sent_ok"]
+    except Exception as e:
+        relay_state["last_push_ts"] = now
+        relay_state["sent_ok"] = False
+        relay_state["last_error"] = str(e)
+        return False
+
+
+relay_stop_event = threading.Event()
+relay_thread = None
+
+
+def relay_worker():
+    interval = max(0.4, 1.0 / max(LIVE_PUSH_HZ, 0.5))
+    consecutive_errors = 0
+    while not relay_stop_event.is_set():
+        try:
+            if LIVE_PUSH_URL:
+                push_live_state(force=True)
+            consecutive_errors = 0
+        except Exception:
+            consecutive_errors += 1
+            if consecutive_errors > 10:
+                relay_stop_event.wait(min(interval * 3, 5.0))
+                continue
+        relay_stop_event.wait(interval)
+
+
+def start_relay_worker():
+    global relay_thread
+    if not LIVE_PUSH_URL:
+        return
+    if relay_thread is not None and not relay_thread.is_alive():
+        print("  Relay thread died — restarting...")
+        relay_thread = None
+    if relay_thread is not None:
+        return
+    relay_stop_event.clear()
+    relay_thread = threading.Thread(target=relay_worker, daemon=True, name="ac-relay")
+    relay_thread.start()
+
+
+def _relay_watchdog():
+    while True:
+        time.sleep(10)
+        if LIVE_PUSH_URL and not relay_stop_event.is_set():
+            start_relay_worker()
+
+
+def stop_relay_worker():
+    relay_stop_event.set()
+
+
+# ── Local reference lap (for coaching) ───────────────────────────────────────
+
+def _candidate_reference_paths():
+    candidates = []
+    if LOCAL_REFERENCE_JSON:
+        candidates.append(Path(LOCAL_REFERENCE_JSON))
+    script_dir = Path(__file__).resolve().parent
+    candidates.extend([
+        script_dir / "output" / "fast_laps.json",
+        script_dir / "fast_laps.json",
+        script_dir / "reference_lap.json",
+        script_dir / "reference.json",
+    ])
+    seen = []
+    for p in candidates:
+        if p and p not in seen:
+            seen.append(p)
+    return seen
+
+
+def _candidate_boundaries_paths():
+    candidates = []
+    if LOCAL_BOUNDARIES_JSON:
+        candidates.append(Path(LOCAL_BOUNDARIES_JSON))
+    script_dir = Path(__file__).resolve().parent
+    candidates.extend([
+        script_dir / "output" / "boundaries.json",
+        script_dir / "boundaries.json",
+        script_dir / "track_boundaries.json",
+    ])
+    seen = []
+    for p in candidates:
+        if p and p not in seen:
+            seen.append(p)
+    return seen
+
+
+def load_local_boundaries():
+    for path in _candidate_boundaries_paths():
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            left  = data.get("left_bnd",  [])
+            right = data.get("right_bnd", [])
+            if left or right:
+                ref_data["left_bnd"]  = left
+                ref_data["right_bnd"] = right
+                print(f"  Local boundaries loaded: {path.name} ({len(left)} left, {len(right)} right)")
+                return True
+        except Exception as e:
+            print(f"  Failed to read boundaries from {path}: {e}")
+    return False
+
+
+def load_local_reference():
+    load_local_boundaries()
+    for path in _candidate_reference_paths():
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            ref_data["x"]          = data["x"]
+            ref_data["y"]          = data["y"]
+            ref_data["dist_m"]     = data["dist_m"]
+            ref_data["speed_kmh"]  = data["speed_kmh"]
+            ref_data["throttle"]   = data["throttle"]
+            ref_data["brake"]      = data["brake"]
+            ref_data["corners"]    = data.get("corners", [])
+            ref_data["total_dist"] = data.get("total_dist", 3425)
+            if data.get("left_bnd"):  ref_data["left_bnd"]  = data["left_bnd"]
+            if data.get("right_bnd"): ref_data["right_bnd"] = data["right_bnd"]
+            ref_data["loaded"] = True
+            print(f"  Local reference loaded: {path.name} ({len(ref_data['x'])} points, {len(ref_data['corners'])} corners)")
+            return True
+        except Exception as e:
+            print(f"  Failed to read reference from {path}: {e}")
+    if ref_data["left_bnd"] or ref_data["right_bnd"]:
+        print("  Boundaries available, but no local reference JSON was found")
         return True
-    except Exception as e:
-        print(f"  Could not load reference lap: {e}")
-        return len(ref_data["left_bnd"]) > 0
+    return False
 
 
-_last_ref_i = 0  # cache last position for fast search
+_last_ref_i = 0
+
 
 def find_nearest_ref(car_x, car_z):
-    """Find index of closest reference point. Uses windowed search from last position."""
     global _last_ref_i
     if not ref_data["loaded"] or not ref_data["x"]:
         return -1
     xs, ys = ref_data["x"], ref_data["y"]
     n = len(xs)
-    # Search a window of ±100 points around last known position (car moves ~5pts per sample)
     window = 100
     start = max(0, _last_ref_i - 10)
     end   = min(n, _last_ref_i + window)
@@ -735,7 +798,6 @@ def find_nearest_ref(car_x, car_z):
         d = (xs[i] - car_x) ** 2 + (ys[i] - car_z) ** 2
         if d < best_d:
             best_d, best_i = d, i
-    # If near end of lap, also check beginning (for lap rollover)
     if _last_ref_i > n - window:
         for i in range(0, min(window, n)):
             d = (xs[i] - car_x) ** 2 + (ys[i] - car_z) ** 2
@@ -746,14 +808,11 @@ def find_nearest_ref(car_x, car_z):
 
 
 def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
-    """Real-time coaching comparing current telemetry to reference."""
     if not ref_data["loaded"] or not ref_data.get("x"):
         return
-
     ref_i = find_nearest_ref(car_x, car_z)
     if ref_i < 0:
         return
-
     ref_speed    = ref_data["speed_kmh"][ref_i]
     ref_throttle = ref_data["throttle"][ref_i]
     ref_brake    = ref_data["brake"][ref_i]
@@ -766,11 +825,9 @@ def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
     coaching_state["speed_delta"] = round(speed_delta, 1)
     coaching_state["dist_m"]      = round(cur_dist, 0)
     coaching_state["lap_pct"]     = round(cur_dist / total_dist * 100, 1) if total_dist else 0
-    # Store GPS position on reference line for accurate map dot
     coaching_state["ref_gps_x"]   = round(ref_data["x"][ref_i], 2)
     coaching_state["ref_gps_y"]   = round(ref_data["y"][ref_i], 2)
 
-    # Find nearest corner ahead (within 400m)
     next_corner = None
     for c in ref_data["corners"]:
         dtc = c["dist_m"] - cur_dist
@@ -781,19 +838,15 @@ def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
 
     msg, sub, sev = "On pace", f"{speed_kmh:.0f} vs {ref_speed:.0f} km/h", "info"
 
-    # Priority 1: active braking zone - ref is braking hard but we're not
     if ref_brake > 0.5 and brake < 0.1:
         msg = f"BRAKE NOW — {ref_speed:.0f}→{ref_speed*0.6:.0f} km/h"
         sub = f"Reference braking hard here — {speed_kmh:.0f} km/h entry"
         sev = "danger"
-
-    # Priority 2: corner approach with brake point info
     elif next_corner:
-        name  = next_corner["corner_name"]
+        name = next_corner["corner_name"]
         dist_to_brake = next_corner.get("ref_brake_point_m", next_corner["dist_m"] - 80) - cur_dist
-        ref_apex = next_corner.get("ref_apex_speed_kmh", 0)
-        ref_entry= next_corner.get("ref_entry_speed_kmh", 0)
-
+        ref_apex  = next_corner.get("ref_apex_speed_kmh", 0)
+        ref_entry = next_corner.get("ref_entry_speed_kmh", 0)
         if dist_to_brake <= 0 and brake < 0.1:
             msg = f"BRAKE NOW — {name}"
             sub = f"Target apex {ref_apex:.0f} km/h — entry was {ref_entry:.0f} km/h"
@@ -810,15 +863,11 @@ def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
             msg = f"{name} in {next_corner['dist_m']-cur_dist:.0f}m"
             sub = f"Brake at {next_corner.get('ref_brake_point_m',0):.0f}m · Apex {ref_apex:.0f} km/h"
             sev = "info"
-
-    # Priority 3: missed throttle pickup
     elif ref_throttle > 0.85 and throttle < 0.5 and speed_kmh > 60:
         gap = (ref_throttle - throttle) * 100
         msg = f"MORE THROTTLE — {throttle*100:.0f}% vs {ref_throttle*100:.0f}%"
         sub = f"A2RL is at full throttle here — you are {gap:.0f}% behind"
         sev = "warn"
-
-    # Priority 4: big speed deficit
     elif speed_delta < -25:
         msg = f"−{abs(speed_delta):.0f} km/h DEFICIT"
         sub = f"You: {speed_kmh:.0f}  A2RL: {ref_speed:.0f} — carry more speed"
@@ -827,8 +876,6 @@ def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
         msg = f"−{abs(speed_delta):.0f} km/h — carry more speed"
         sub = f"You: {speed_kmh:.0f}  A2RL: {ref_speed:.0f} km/h"
         sev = "warn"
-
-    # Priority 5: faster than reference
     elif speed_delta > 15:
         msg = f"+{speed_delta:.0f} km/h vs A2RL"
         sub = f"Faster than autonomous car here — {speed_kmh:.0f} vs {ref_speed:.0f} km/h"
@@ -843,29 +890,34 @@ def update_coaching(car_x, car_z, speed_kmh, throttle, brake):
     coaching_state["severity"] = sev
 
 
+# ── Map helpers ───────────────────────────────────────────────────────────────
+
 def load_map_ini(path: Path):
     if not path.exists():
         raise FileNotFoundError(f"map.ini not found: {path}")
-
     parser = ConfigParser()
     parser.read(path, encoding="utf-8")
     p = parser["PARAMETERS"]
-
     return {
-        "width": float(p.get("WIDTH", "0")),
-        "height": float(p.get("HEIGHT", "0")),
-        "margin": float(p.get("MARGIN", "0")),
+        "width":        float(p.get("WIDTH",        "0")),
+        "height":       float(p.get("HEIGHT",       "0")),
+        "margin":       float(p.get("MARGIN",       "0")),
         "scale_factor": float(p.get("SCALE_FACTOR", "1")),
-        "x_offset": float(p.get("X_OFFSET", "0")),
-        "z_offset": float(p.get("Z_OFFSET", "0")),
+        "x_offset":     float(p.get("X_OFFSET",     "0")),
+        "z_offset":     float(p.get("Z_OFFSET",     "0")),
     }
 
 
 def world_to_pixel(x: float, z: float, mp: dict):
-    px = (x + mp["x_offset"]) / mp["scale_factor"]
-    py = (z + mp["z_offset"]) / mp["scale_factor"]
+    if not mp:
+        return x, z
+    scale = mp.get("scale_factor", 1.0) or 1.0
+    px = (x + mp.get("x_offset", 0.0)) / scale
+    py = (z + mp.get("z_offset", 0.0)) / scale
     return px, py
 
+
+# ── Telemetry helpers ─────────────────────────────────────────────────────────
 
 def take_sample(p, g):
     return {
@@ -915,49 +967,55 @@ def save_to_desktop(csv_text, lap_num):
     return str(path)
 
 
-def send_to_mac(csv_text, mac_ip, port, lap_num, ac_lap_time_ms=None):
-    url   = f"http://{mac_ip}:{port}/upload"
-    fname = f"ac_lap{lap_num}.csv"
-    files = {"file": (fname, csv_text.encode("utf-8"), "text/csv")}
-    # Send the actual AC lap time so server uses it directly (bypasses computed time)
-    form  = {"ac_lap_time_ms": str(ac_lap_time_ms)} if ac_lap_time_ms else {}
-    try:
-        resp = requests.post(url, files=files, data=form, timeout=60)
-        data = resp.json()
-        return data.get("ok", False), data.get("lap_time"), data.get("samples")
-    except Exception as e:
-        print(f"  Send failed: {e}")
-        return False, None, None
-
-
 # ── Mini HTTP server for live UI ──────────────────────────────────────────────
 
 class UIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # Suppress access logs
+        pass  # suppress access logs
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._send_cors_headers()
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
+        if self.path in ("/", "/index.html"):
             self._send(200, "text/html", LIVE_HTML.encode())
 
         elif self.path == "/state":
             self._send(200, "application/json",
-                       json.dumps(state).encode())
+                       json.dumps(build_public_state_snapshot()).encode())
+
+        elif self.path == "/health":
+            payload = json.dumps({
+                "ok":           True,
+                "status":       state.get("status"),
+                "relay_enabled": relay_state["enabled"],
+                "relay_ok":     relay_state["sent_ok"],
+                "relay_error":  relay_state["last_error"],
+            }).encode()
+            self._send(200, "application/json", payload)
 
         elif self.path == "/ref_map":
             has_bnd = len(ref_data.get("left_bnd", [])) > 0
-            has_ref = len(ref_data.get("x", [])) > 0
+            has_ref = len(ref_data.get("x",        [])) > 0
             payload = json.dumps({
                 "ok":        has_bnd or has_ref,
-                "x":         ref_data.get("x", []),
-                "y":         ref_data.get("y", []),
-                "left_bnd":  ref_data.get("left_bnd", []),
+                "x":         ref_data.get("x",         []),
+                "y":         ref_data.get("y",         []),
+                "left_bnd":  ref_data.get("left_bnd",  []),
                 "right_bnd": ref_data.get("right_bnd", []),
             }).encode()
             self._send(200, "application/json", payload)
 
         elif self.path == "/map.png":
-            self._send(200, "image/png", MAP_PNG.read_bytes())
+            if MAP_PNG.exists():
+                self._send(200, "image/png", MAP_PNG.read_bytes())
+            else:
+                self._send(404, "text/plain", b"map.png not found")
 
         elif self.path.startswith("/download/"):
             lap_n = self.path.split("/")[-1]
@@ -974,9 +1032,15 @@ class UIHandler(BaseHTTPRequestHandler):
         else:
             self._send(404, "text/plain", b"Not found")
 
+    def _send_cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin",  CORS_ALLOW_ORIGIN)
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+
     def _send(self, code, ctype, body, disposition=None):
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
+        self._send_cors_headers()
+        self.send_header("Content-Type",   ctype)
         self.send_header("Content-Length", str(len(body)))
         if disposition:
             self.send_header("Content-Disposition", disposition)
@@ -987,7 +1051,6 @@ class UIHandler(BaseHTTPRequestHandler):
 
 def start_ui_server(port=9000):
     import socket
-    # Try binding to check port is free
     test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     test.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
@@ -1005,6 +1068,7 @@ def start_ui_server(port=9000):
 # ── Main recorder ─────────────────────────────────────────────────────────────
 
 def main():
+    global UI_PORT
     print("=" * 55)
     print("  AI Race Engineer — AC Lap Recorder")
     print("=" * 55)
@@ -1013,52 +1077,62 @@ def main():
         print("ERROR: Must run on Windows where Assetto Corsa is installed.")
         sys.exit(1)
 
-    if not MAP_PNG.exists():
-        print(f"ERROR: Track map not found: {MAP_PNG}")
-        sys.exit(1)
-    if not MAP_INI.exists():
-        print(f"ERROR: Track map.ini not found: {MAP_INI}")
-        sys.exit(1)
+    if ENABLE_LOCAL_UI:
+        if not MAP_PNG.exists():
+            print(f"ERROR: Track map not found: {MAP_PNG}")
+            print("Set ENABLE_LOCAL_UI=0 if you only need the Cloud relay.")
+            sys.exit(1)
+        if not MAP_INI.exists():
+            print(f"ERROR: Track map.ini not found: {MAP_INI}")
+            print("Set ENABLE_LOCAL_UI=0 if you only need the Cloud relay.")
+            sys.exit(1)
+    else:
+        if not MAP_INI.exists():
+            print("  WARNING: map.ini not found — pixel coordinates will be raw world coords")
 
     print()
-    mac_ip = input("Mac IP address (e.g. 192.168.1.10): ").strip()
-    port   = 8080
+    if MAP_INI.exists():
+        state["map"] = load_map_ini(MAP_INI)
+    else:
+        state["map"] = {}
 
-    state["mac_ip"]   = mac_ip
-    state["mac_port"] = port
-    state["map"] = load_map_ini(MAP_INI)
+    if ENABLE_LOCAL_UI:
+        UI_PORT = 9000
+        try:
+            start_ui_server(UI_PORT)
+            print(f"Live UI started on port {UI_PORT}")
+        except Exception as e:
+            print(f"WARNING: Could not start UI server: {e}")
+            UI_PORT = None
 
-    # Start live UI server
-    UI_PORT = 9000
-    try:
-        start_ui_server(UI_PORT)
-        print(f"\nLive UI started on port {UI_PORT}")
-    except Exception as e:
-        print(f"\nWARNING: Could not start UI server: {e}")
-        print("This may be a firewall issue. Try allowing Python in Windows Firewall.")
+        if UI_PORT and UI_AUTO_OPEN:
+            import webbrowser
+            webbrowser.open(f"http://localhost:{UI_PORT}")
+            print(f"Opening browser at http://localhost:{UI_PORT}")
+        elif UI_PORT:
+            print(f"Local UI available at http://localhost:{UI_PORT}")
+    else:
         UI_PORT = None
+        print("Local UI disabled")
 
-    if UI_PORT:
-        import webbrowser
-        webbrowser.open(f"http://localhost:{UI_PORT}")
-        print(f"Opening browser at http://localhost:{UI_PORT}")
-        print(f"If browser doesn't open, go there manually\n")
+    if LIVE_PUSH_URL:
+        relay_state["enabled"] = True
+        print(f"Live relay enabled -> {LIVE_PUSH_URL}")
+        if LIVE_PUSH_TOKEN:
+            print("Live relay auth token configured")
+        print(f"Live relay rate: {LIVE_PUSH_HZ:.1f} Hz")
+        start_relay_worker()
+        _wd = threading.Thread(target=_relay_watchdog, daemon=True, name="ac-relay-watchdog")
+        _wd.start()
+    else:
+        print("Live relay disabled (set LIVE_PUSH_URL to enable)")
 
-    # Test Mac connection and load reference
-    print(f"Testing Mac connection...", end="", flush=True)
-    try:
-        requests.get(f"http://{mac_ip}:{port}/", timeout=5)
-        print(" Connected ✓")
-        print(f"Loading reference lap from Mac...", end="", flush=True)
-        if load_reference(mac_ip, port):
-            print(" Loaded ✓")
-        else:
-            print(" Not available yet — reference loads after first lap processed")
-            print("  Tip: run test.py on Mac first to pre-generate fast_laps.json")
-    except Exception:
-        print(f" Cannot reach {mac_ip}:{port} — make sure server.py is running on Mac")
+    print("Checking local reference files...", end="", flush=True)
+    if load_local_reference():
+        print(" Ready ✓")
+    else:
+        print(" None found (coaching inactive)")
 
-    # Connect to AC shared memory
     print("\nConnecting to Assetto Corsa...", end="", flush=True)
     try:
         phys_mm  = mmap.mmap(-1, ctypes.sizeof(SPageFilePhysics),  "Local\\acpmf_physics")
@@ -1068,6 +1142,7 @@ def main():
         print(f"\nERROR: {e}")
         print("Make sure Assetto Corsa is running and you are in a session.")
         input("Press ENTER to exit...")
+        stop_relay_worker()
         sys.exit(1)
 
     def read_p():
@@ -1080,42 +1155,55 @@ def main():
         return SPageFileGraphic.from_buffer_copy(
             graph_mm.read(ctypes.sizeof(SPageFileGraphic)))
 
-    print("Waiting for active session", end="", flush=True)
-    while read_g().status != 2:
-        print(".", end="", flush=True)
+    # ── Wait for a live AC session (status == 2) ──────────────────────────────
+    # This is the same strict check used in the original working recorder.
+    # Without it the shared memory returns all-zeros and lap detection never fires.
+    print("Waiting for active AC session (load into a car on track)", end="", flush=True)
+    while True:
+        gw = read_g()
+        if gw.status == 2:
+            print(f" Ready! [status={gw.status}]")
+            break
+        if LIVE_PUSH_URL:
+            push_live_state(force=True)
         time.sleep(0.5)
-    print(" Ready!")
+        print(".", end="", flush=True)
+
     if UI_PORT:
-        print(f"\nUI: http://localhost:{UI_PORT}")
+        print(f"UI: http://localhost:{UI_PORT}")
     print("Drive a lap — recording starts automatically at S/F line\n")
 
-    lap_num = 0
-    last_path_x = None
-    last_path_z = None
-    last_heading = 0.0
+    lap_num       = 0
+    last_path_x   = None
+    last_path_z   = None
+    last_heading  = 0.0
     min_world_step = 0.5
+    auto_start_next = False
 
+    # ── Per-lap outer loop ────────────────────────────────────────────────────
     while True:
         lap_num += 1
-        state["status"]   = "waiting"
-        state["lap_num"]  = lap_num
-        state["samples"]  = 0
-        state["lap_time"] = None
-        state["path"] = []
-        state["pixel_x"] = None
-        state["pixel_y"] = None
+        state["status"]    = "waiting"
+        state["lap_num"]   = lap_num
+        state["samples"]   = 0
+        state["lap_time"]  = None
+        state["cur_time"]  = "0:00.000"
+        state["path"]      = []
+        state["pixel_x"]   = None
+        state["pixel_y"]   = None
         state["heading_rad"] = 0.0
-        last_path_x = None
-        last_path_z = None
+        state["coaching"]  = coaching_state.copy()
+        push_live_state(force=True) if LIVE_PUSH_URL else None
+        last_path_x  = None
+        last_path_z  = None
         last_heading = 0.0
 
         print(f"{'─'*55}")
         print(f"  LAP {lap_num} — Waiting for S/F line...")
 
-        # Retry loading reference if not loaded yet
         if not ref_data["loaded"]:
-            print(f"  Retrying reference load...", end="", flush=True)
-            if load_reference(mac_ip, port):
+            print("  Retrying local reference load...", end="", flush=True)
+            if load_local_reference():
                 print(" Loaded ✓")
             else:
                 print(" Still not available")
@@ -1125,17 +1213,15 @@ def main():
         prev_laps = read_g().completedLaps
         prev_t    = 0
         last_tick = 0.0
-        INTERVAL  = 0.02
+        INTERVAL  = 0.02     # 50 Hz sample rate
 
-        # Pit start detection: check completedLaps OR if car is physically in pit area
         g_init    = read_g()
-        p_init    = read_p()
         in_pit    = (g_init.isInPit == 1 or g_init.isInPitLane == 1)
         first_lap = (g_init.completedLaps == 0)
         pit_start = first_lap or in_pit
 
-        # If previous lap just ended by crossing S/F, start next lap immediately
-        if 'auto_start_next' in dir() and auto_start_next:
+        # If previous lap just ended by crossing S/F, start recording immediately
+        if auto_start_next:
             recording = True
             records   = []
             state["status"] = "recording"
@@ -1145,11 +1231,10 @@ def main():
             reason = "first lap of session" if first_lap else "car detected in pit lane"
             print(f"  Pit start detected ({reason}) — recording when car moves")
             state["status"] = "waiting"
-            auto_start_next = False
         else:
-            print(f"  Track start — waiting for S/F line crossing")
-            auto_start_next = False
+            print("  Track start — waiting for S/F line crossing")
 
+        # ── Inner polling loop (one lap) ──────────────────────────────────────
         try:
             while True:
                 now = time.perf_counter()
@@ -1162,45 +1247,45 @@ def main():
                 p = read_p()
                 cur_t = g.iCurrentTime
 
-                # Detect lap start
+                # ── Recording trigger ─────────────────────────────────────────
+                # Exactly matches the original working recorder:
+                #   pit start  → begin when car starts moving (speed > 5 km/h)
+                #   track start → begin on clean S/F timer rollover only
                 if not recording:
                     if pit_start:
-                        # Pit start: begin as soon as car starts moving out of pit
                         if p.speedKmh > 5 and cur_t > 0:
                             recording = True
                             records   = []
                             state["status"] = "recording"
-                            print(f"  ● Recording started (pit start)")
+                            print("  ● Recording started (pit start)")
                     else:
-                        # Normal start: timer resets crossing S/F line
+                        # S/F crossing: timer resets from a large value to near-zero
                         if cur_t > 0 and cur_t < 3000 and prev_t > 5000:
                             recording = True
                             records   = []
                             state["status"] = "recording"
-                            print(f"  ● Recording started")
+                            print("  ● Recording started (S/F crossing)")
                     if cur_t > 0:
                         prev_t = cur_t
 
+                # ── Sample + state update (only while recording) ───────────────
                 if recording:
                     records.append(take_sample(p, g))
 
-                    # Update shared state for UI (every sample)
                     state["samples"]  = len(records)
                     state["speed"]    = round(p.speedKmh, 1)
                     state["gear"]     = p.gear
-                    # Show time from recording start, not session start
                     rec_t = cur_t - records[0]["LapTimeCurrent"] if records else 0
                     state["cur_time"] = fmt(max(0, rec_t))
-                    state["throttle"] = round(p.gas, 3)
+                    state["throttle"] = round(p.gas,   3)
                     state["brake"]    = round(p.brake, 3)
 
-                    # Always update car position (every sample)
                     cx = float(g.carCoordinates[0])
                     cz = float(g.carCoordinates[2])
-                    state["connected"] = (g.status == 2)
-                    state["car_x"] = round(cx, 2)
-                    state["car_z"] = round(cz, 2)
-                    state["completed_laps"] = int(g.completedLaps)
+                    state["connected"]       = (g.status == 2)
+                    state["car_x"]           = round(cx, 2)
+                    state["car_z"]           = round(cz, 2)
+                    state["completed_laps"]  = int(g.completedLaps)
                     state["current_time_ms"] = int(g.iCurrentTime)
 
                     px, py = world_to_pixel(cx, cz, state["map"])
@@ -1214,12 +1299,9 @@ def main():
                             last_heading = math.atan2(dz, dx)
                     state["heading_rad"] = last_heading
 
-                    should_add = False
-                    if last_path_x is None:
-                        should_add = True
-                    elif abs(cx - last_path_x) > min_world_step or abs(cz - last_path_z) > min_world_step:
-                        should_add = True
-
+                    should_add = (last_path_x is None or
+                                  abs(cx - last_path_x) > min_world_step or
+                                  abs(cz - last_path_z) > min_world_step)
                     if should_add:
                         state["path"].append([round(px, 2), round(py, 2)])
                         if len(state["path"]) > MAX_PATH_POINTS:
@@ -1227,21 +1309,18 @@ def main():
                         last_path_x = cx
                         last_path_z = cz
 
-                    # Real-time coaching (every 5 samples = 10Hz)
                     if len(records) % 5 == 0 and ref_data["loaded"]:
                         update_coaching(cx, cz, p.speedKmh, p.gas, p.brake)
                         state["coaching"] = coaching_state.copy()
 
                     if len(records) % 100 == 0:
-                        print(f"\r  ● {fmt(cur_t)}  "
-                              f"{p.speedKmh:.0f} km/h  "
-                              f"G{p.gear}  "
-                              f"{len(records)} samples   ",
+                        print(f"\r  ● {fmt(cur_t)}  {p.speedKmh:.0f} km/h  "
+                              f"G{p.gear}  {len(records)} samples   ",
                               end="", flush=True)
 
-                    # Lap complete
+                    # ── Lap complete: completedLaps counter incremented ────────
                     if g.completedLaps > prev_laps and len(records) > 100:
-                        lap_ms = g.iLastTime if g.iLastTime > 0 else cur_t
+                        lap_ms       = g.iLastTime if g.iLastTime > 0 else cur_t
                         lap_time_str = fmt(lap_ms)
                         print(f"\r  ■ LAP {lap_num} DONE — {lap_time_str}  "
                               f"({len(records)} samples)          ")
@@ -1252,12 +1331,13 @@ def main():
                         state["gear"]     = 0
                         state["throttle"] = 0.0
                         state["brake"]    = 0.0
+                        push_live_state(force=True) if LIVE_PUSH_URL else None
                         break
 
-                    # Fallback timer reset
+                    # ── Fallback: timer reset without completedLaps increment ──
                     if len(records) > 300 and cur_t < 1000:
                         if records[-1]["LapTimeCurrent"] > 20000:
-                            lap_ms = records[-1]["LapTimeCurrent"]
+                            lap_ms       = records[-1]["LapTimeCurrent"]
                             lap_time_str = fmt(lap_ms)
                             print(f"\r  ■ LAP {lap_num} DONE — {lap_time_str}  "
                                   f"({len(records)} samples)          ")
@@ -1269,6 +1349,7 @@ def main():
                             state["throttle"] = 0.0
                             state["brake"]    = 0.0
                             pit_start = False
+                            push_live_state(force=True) if LIVE_PUSH_URL else None
                             break
 
                 prev_laps = g.completedLaps
@@ -1277,50 +1358,47 @@ def main():
             print("\nStopped.")
             break
 
+        # ── Post-lap: save CSV + push to cloud ───────────────────────────────
         if records:
             csv_text = to_csv(records)
-
-            # Store for UI download
             lap_csvs[lap_num] = csv_text
-
-            # Save to Desktop
             local = save_to_desktop(csv_text, lap_num)
             print(f"  Saved: {Path(local).name}")
 
-            # Update history immediately so UI shows it
             lap_entry = {
                 "lap":     lap_num,
                 "time":    state["lap_time"] or "?",
                 "samples": len(records),
             }
             state["history"].append(lap_entry)
+            state["completed_lap"] = lap_entry
             state["status"] = "sending"
 
-            # Send to Mac in background so recording can restart immediately
-            def send_async(csv_text=csv_text, lap_num=lap_num, lap_ms=lap_ms):
-                ok, lt, samps = send_to_mac(csv_text, mac_ip, port, lap_num,
-                                            ac_lap_time_ms=lap_ms)
-                if ok:
-                    print(f"\n  Lap {lap_num} sent to Mac OK")
-                    print(f"  Dashboard: http://{mac_ip}:{port}/dashboard")
-                else:
-                    print(f"\n  Lap {lap_num} send failed — file saved to Desktop")
-                state["status"] = "waiting"
+            # Push final lap state to cloud (async so recording can restart immediately)
+            if LIVE_PUSH_URL:
+                def _push_final(force=True):
+                    push_live_state(force=True)
+                threading.Thread(target=_push_final, daemon=True).start()
 
-            threading.Thread(target=send_async, daemon=True).start()
-
+            state.pop("completed_lap", None)
+            state["status"] = "waiting"
+            push_live_state(force=True) if LIVE_PUSH_URL else None
         else:
             state["status"] = "waiting"
+            push_live_state(force=True) if LIVE_PUSH_URL else None
 
-        # Immediately start recording next lap — no need to wait for S/F
-        # because we just crossed it to end the previous lap
         print(f"  Starting lap {lap_num + 1} recording immediately...")
-        auto_start_next = True  # flag to skip S/F detection for next lap
+        auto_start_next = True  # skip S/F detection for next lap — we just crossed it
 
+    # ── Cleanup ───────────────────────────────────────────────────────────────
+    stop_relay_worker()
     phys_mm.close()
     graph_mm.close()
     print("\nDone.")
-    input("Press ENTER to exit...")
+    try:
+        input("Press ENTER to exit...")
+    except EOFError:
+        pass
 
 
 if __name__ == "__main__":
